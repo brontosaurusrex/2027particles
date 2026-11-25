@@ -20,19 +20,48 @@ export function randomSource(seed) {
   };
 }
 
-export function createEmitter(id, kind, points, position = [0, 0, 0], rotation = [0, 0, 0]) {
+export function emitterSettings(source = {}) {
+  const {
+    rate = 115, lifetime = 2.4, size = 0.085, sizeVariation = 100, speed = 2.6,
+    speedVariation = 25, drawSpeed = 25, smoothing = 0, brightness = DEFAULT_BRIGHTNESS,
+  } = source;
   return {
-    id, kind, points, position, rotation, rate: 115, lifetime: 2.4, size: 0.085, sizeVariation: 100,
-    speed: 2.6, speedVariation: 25, drawSpeed: 25, brightness: [...DEFAULT_BRIGHTNESS],
+    rate, lifetime, size, sizeVariation, speed, speedVariation, drawSpeed, smoothing, brightness: [...brightness],
   };
+}
+
+export function createEmitter(id, kind, points, position = [0, 0, 0], rotation = [0, 0, 0], source) {
+  return { id, kind, points, position, rotation, ...emitterSettings(source) };
 }
 
 export function strokeDuration(emitter) {
   return emitter.kind !== 'area' && emitter.drawSpeed > 0 ? 100 / emitter.drawSpeed : Infinity;
 }
 
-export function strokePath({ kind, points }) {
-  const vertices = kind === 'outline' ? [...points, points[0]] : points;
+// Chaikin corner cutting rounds each corner and keeps open stroke endpoints fixed.
+function smoothStroke(points, closed, smoothing) {
+  if (points.length < 3 || !smoothing) return points;
+  const cut = MathUtils.clamp(smoothing / 100, 0, 1) * 0.25;
+  let vertices = points;
+  for (let pass = 0; pass < 3; pass++) {
+    const rounded = closed ? [] : [vertices[0]];
+    const segments = closed ? vertices.length : vertices.length - 1;
+    for (let index = 0; index < segments; index++) {
+      const [ax, ay] = vertices[index];
+      const [bx, by] = vertices[(index + 1) % vertices.length];
+      rounded.push([MathUtils.lerp(ax, bx, cut), MathUtils.lerp(ay, by, cut)]);
+      rounded.push([MathUtils.lerp(bx, ax, cut), MathUtils.lerp(by, ay, cut)]);
+    }
+    if (!closed) rounded.push(vertices.at(-1));
+    vertices = rounded;
+  }
+  return vertices;
+}
+
+export function strokePath({ kind, points, smoothing = 0 }) {
+  const closed = kind !== 'line';
+  const path = smoothStroke(points, closed, kind === 'area' ? 0 : smoothing);
+  const vertices = closed ? [...path, path[0]] : path;
   let length = 0;
   const distances = vertices.map(([x, y], index) => {
     if (index > 0) length += Math.hypot(x - vertices[index - 1][0], y - vertices[index - 1][1]);
@@ -43,10 +72,16 @@ export function strokePath({ kind, points }) {
 
 export function positionOnStroke({ vertices, distances, length }, progress) {
   const distance = MathUtils.clamp(progress, 0, 1) * length;
-  const upper = distances.findIndex(end => end > distance);
-  const index = upper === -1 ? vertices.length - 1 : upper;
+  let low = 1;
+  let high = distances.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (distances[mid] <= distance) low = mid + 1;
+    else high = mid;
+  }
+  const index = Math.min(low, vertices.length - 1);
   const [x, y] = vertices[index];
-  if (upper === -1) return { x, y, index };
+  if (low === vertices.length) return { x, y, index };
   const [previousX, previousY] = vertices[index - 1];
   const fraction = (distance - distances[index - 1]) / (distances[index] - distances[index - 1]);
   return { x: MathUtils.lerp(previousX, x, fraction), y: MathUtils.lerp(previousY, y, fraction), index };

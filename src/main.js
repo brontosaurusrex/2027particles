@@ -8,6 +8,7 @@ import {
 } from './simulation.js';
 import { chooseDestination, discardDestination, renderArchive } from './export.js';
 import { mountBrightnessEditor } from './brightness-editor.js';
+import { mountEmitterPresets } from './emitter-presets.js';
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
@@ -126,14 +127,14 @@ async function start() {
       group.quaternion.copy(emitterRotation(emitter));
       const active = emitter === selected || emitter === stroke;
       const tint = active ? 0xf4c468 : 0x9a907a;
-      const vertices = emitter.points.map(([x, y]) => new THREE.Vector3(x, y, 0));
+      const path = strokePath(emitter === stroke ? { ...emitter, smoothing: 0 } : emitter);
       const duration = emitter === stroke ? Infinity : strokeDuration(emitter);
       const animated = Number.isFinite(duration);
       const material = new THREE.LineBasicMaterial({
         color: tint, transparent: true, opacity: animated ? 0.3 : 0.9, depthTest: false,
       });
-      const linePoints = emitter.kind === 'line' ? vertices : [...vertices, vertices[0]];
-      const geometry = new THREE.BufferGeometry().setFromPoints(linePoints);
+      const vertices = path.vertices.map(([x, y]) => new THREE.Vector3(x, y, 0));
+      const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
       const line = new THREE.Line(geometry, material);
       line.renderOrder = 3;
       group.add(line);
@@ -142,10 +143,10 @@ async function start() {
         revealed.material.opacity = 0.95;
         revealed.renderOrder = 4;
         group.add(revealed);
-        animatedOutlines.push({ geometry: revealed.geometry, path: strokePath(emitter), duration, tip: 0 });
+        animatedOutlines.push({ geometry: revealed.geometry, path, duration, tip: 0 });
       }
       if (emitter.kind === 'area' && emitter !== stroke) {
-        const area = new THREE.BufferGeometry().setFromPoints(vertices);
+        const area = new THREE.BufferGeometry().setFromPoints(vertices.slice(0, -1));
         area.setIndex(polygonFaces(emitter.points).flat());
         const fill = new THREE.Mesh(area, new THREE.MeshBasicMaterial({
           color: tint, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthTest: false, depthWrite: false,
@@ -224,7 +225,8 @@ async function start() {
     event.preventDefault();
     pause();
     $('hint').textContent = hints[mode];
-    stroke = createEmitter(nextId, mode, [first], workPlane.position.toArray(), planeAngles[$('plane').value]);
+    stroke = createEmitter(nextId, mode, [first], workPlane.position.toArray(),
+      planeAngles[$('plane').value], emitters.at(-1));
     canvas.setPointerCapture(event.pointerId);
   });
   canvas.addEventListener('pointermove', event => {
@@ -277,6 +279,12 @@ async function start() {
     selected.brightness = curve;
     invalidateSimulation();
   });
+  mountEmitterPresets($('emitter-presets'), () => selected, settings => {
+    Object.assign(selected, settings);
+    updateInspector();
+    updateGuides();
+    invalidateSimulation();
+  });
 
   function updateInspector() {
     const menu = $('emitters');
@@ -306,6 +314,11 @@ async function start() {
     }, '%');
     variation.title = 'Random variation above and below the launch speed.';
     if (selected.kind !== 'area') {
+      range(emission, 'Smoothing', 0, 100, 1, selected.smoothing, value => {
+        selected.smoothing = value;
+        updateGuides();
+        invalidateSimulation();
+      }, '%');
       const { input } = range(emission, 'Draw speed', 0, 100, 0.5, selected.drawSpeed, value => {
         selected.drawSpeed = value;
         updateGuides();

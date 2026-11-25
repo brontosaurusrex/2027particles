@@ -17,6 +17,8 @@ Size variation controls the spread around the selected emitter's Chip size. Set 
 
 Lines and outlines emit from the moving tip as they draw in. Set Draw speed to 25%/s for a four-second reveal, or to 0%/s for continuous emission along the whole stroke.
 
+Use Smoothing on a line or outline to round its corners. New emitters start with the most recently drawn emitter's settings. The 20 Emitter preset slots save settings in the current browser. Loading a slot applies it to the selected emitter and keeps its shape and placement.
+
 Increase Air drag under Forces to slow particles throughout their flight and keep wind and turbulence from carrying them as far.
 
 Camera controls adjust depth of field, focus distance, shutter angle, and trail length. Uncheck Focus on orbit target to set the distance manually with the slider. A 90° shutter gives a 5 ms exposure at 50 fps. Trail length controls how far back along each particle's motion the gold trail extends, up to 1.2 seconds. Export uses the current camera and creates a ZIP with 500 consecutively numbered 1920 × 1080 PNGs. Choose transparent frames or include the winter backdrop. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.

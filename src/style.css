@@ -108,6 +108,8 @@ summary { padding: 13px 15px; font-weight: 650; }
 .brightness-values label { min-width: 0; color: var(--muted); font-size: .82rem; text-align: center; }
 .brightness-values input { width: 100%; padding: .28rem .15rem; text-align: center; appearance: textfield; }
 .brightness-values input::-webkit-inner-spin-button { appearance: none; }
+.preset-actions { display: flex; gap: 6px; margin-top: 6px; }
+.preset-status { color: var(--muted); font-size: .9rem; margin: 7px 0 0; }
 #delete-emitter { margin-top: 3px; }
 dialog { width: min(438px, calc(100vw - 32px)); padding: 23px; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
 dialog::backdrop { background: #080911bb; }
