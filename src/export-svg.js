@@ -10,6 +10,20 @@ const coordinate = value => value.toFixed(2);
 const alpha = value => value.toFixed(3);
 const pathData = points => 'M' + points.map(({ x, y }) => `${coordinate(x)},${coordinate(y)}`).join('L') + 'Z';
 
+// Match Three's TSL hue rotation around the neutral RGB axis.
+function rotateHue(color, angle) {
+  if (!angle) return color;
+  const { r, g, b } = color;
+  const cosine = Math.cos(angle);
+  const cross = Math.sin(angle) / Math.sqrt(3);
+  const neutral = (r + g + b) * (1 - cosine) / 3;
+  return color.setRGB(
+    Math.max(0, r * cosine + (b - g) * cross + neutral),
+    Math.max(0, g * cosine + (r - b) * cross + neutral),
+    Math.max(0, b * cosine + (g - r) * cross + neutral),
+  );
+}
+
 function clipAtDepth(points, plane, within) {
   const clipped = [];
   for (let index = 0; index < points.length; index++) {
@@ -84,6 +98,7 @@ function vectorParticles(batches, camera, glints = false) {
       const opacity = appearance.getX(index);
       if (opacity < 0.0005) continue;
       const brightness = appearance.getY(index);
+      const angle = appearance.getZ(index);
       batch.getMatrixAt(index, world);
       view.multiplyMatrices(camera.matrixWorldInverse, world);
       batch.getColorAt(index, color);
@@ -91,10 +106,10 @@ function vectorParticles(batches, camera, glints = false) {
       if (glints) {
         const shape = projectPolygon(outline.map(([x, y]) => new Vector3(x, y, 0).applyMatrix4(view)), camera);
         if (!shape) continue;
-        const fill = color.multiply(glintGold).multiplyScalar(brightness * 0.65).getHexString();
+        const fill = rotateHue(color.multiply(glintGold), angle).multiplyScalar(brightness * 0.65).getHexString();
         contents = `<path fill="#${fill}" d="${pathData(shape)}"/>`;
       } else {
-        contents = chipFaces(outline, halfDepth, world, view, camera, color, brightness);
+        contents = chipFaces(outline, halfDepth, world, view, camera, rotateHue(color, angle), brightness);
       }
       if (contents) groups.push({ z: view.elements[14], svg: `<g opacity="${alpha(opacity)}">${contents}</g>` });
     }
@@ -114,7 +129,8 @@ function vectorTrails(trails, camera) {
     const path = projectPolygon(corners, camera);
     if (!path) continue;
     const brightness = trails.appearance.getY(index);
-    const color = trailGold.clone().multiplyScalar(brightness * 1.45).getHexString();
+    const color = rotateHue(trailGold.clone(), trails.appearance.getZ(index))
+      .multiplyScalar(brightness * 1.45).getHexString();
     if (corners.some(point => point.z > -camera.near || point.z < -camera.far)) {
       paths.push(`<path fill="#${color}" opacity="${alpha((frontAlpha + backAlpha) / 2)}" d="${pathData(path)}"/>`);
       continue;

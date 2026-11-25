@@ -17,6 +17,8 @@ Each emitter has its own launch Speed variation and Lifetime brightness curve. D
 
 Size variation controls the spread around the selected emitter's Chip size. Set it to 0% for equal-sized chips, 100% for the default mix, or up to 150% for a wider mix.
 
+Hue variation gives each particle from the selected emitter a consistent random color shift. At 0° the palette stays gold. Wider ranges add more colors in the preview, PNG frames, and SVG.
+
 Lines and outlines emit from the moving tip as they draw in. Set Draw speed to 25%/s for a four-second reveal, or to 0%/s for continuous emission along the whole stroke.
 
 Use Smoothing on a line or outline to round its corners. New emitters start with the most recently drawn emitter's settings. The 20 Emitter preset slots save settings in the current browser. Loading a slot applies it to the selected emitter and keeps its shape and placement.

@@ -23,10 +23,11 @@ export function randomSource(seed) {
 export function emitterSettings(source = {}) {
   const {
     rate = 115, lifetime = 2.4, size = 0.085, sizeVariation = 100, speed = 2.6,
-    speedVariation = 25, drawSpeed = 25, smoothing = 0, brightness = DEFAULT_BRIGHTNESS,
+    speedVariation = 25, hueVariation = 0, drawSpeed = 25, smoothing = 0, brightness = DEFAULT_BRIGHTNESS,
   } = source;
   return {
-    rate, lifetime, size, sizeVariation, speed, speedVariation, drawSpeed, smoothing, brightness: [...brightness],
+    rate, lifetime, size, sizeVariation, speed, speedVariation, hueVariation, drawSpeed, smoothing,
+    brightness: [...brightness],
   };
 }
 
@@ -171,6 +172,7 @@ export class Simulation {
     this.frame = 0;
     this.particles = [];
     this.random = randomSource(this.settings.seed);
+    this.hueRandom = randomSource(this.settings.seed ^ 0x9e3779b9);
   }
 
   seek(frame) {
@@ -189,6 +191,7 @@ export class Simulation {
       const { drawDuration } = emitter;
       if (start >= drawDuration) continue;
       const sizeVariation = (emitter.sizeVariation ?? 100) / 100;
+      const hueRange = MathUtils.degToRad(emitter.hueVariation ?? 0);
       const first = Math.floor(start * emitter.rate + 1e-8) + 1;
       const last = Math.floor(Math.min(end, drawDuration) * emitter.rate + 1e-8);
       for (let i = first; i <= last && this.particles.length < CAPACITY; i++) {
@@ -220,6 +223,7 @@ export class Simulation {
           glint: random() < 0.46,
           shape: Math.floor(random() * this.shapeCount),
           shade: Math.floor(random() * 5),
+          hue: (this.hueRandom() * 2 - 1) * hueRange,
         });
       }
     }

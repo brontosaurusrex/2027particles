@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { attribute, mix, output, renderOutput, texture, uniform, uv, vec4 } from 'three/tsl';
+import { attribute, hue, mix, output, renderOutput, texture, uniform, uv, vec4 } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { chipGeometries } from './chips.js';
 import { CAPACITY, STEP } from './simulation.js';
@@ -12,9 +12,9 @@ const GOLD = [0xffa320, 0xffc642, 0xffd272, 0xf6a741, 0xffe39b].map(value => new
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 function setLifetimeAppearance(material) {
-  const appearance = attribute('lifetimeAppearance', 'vec2');
+  const appearance = attribute('lifetimeAppearance', 'vec3');
   material.opacityNode = appearance.x;
-  material.outputNode = vec4(output.rgb.mul(appearance.y), output.a);
+  material.outputNode = vec4(hue(output.rgb, appearance.z).mul(appearance.y), output.a);
   return material;
 }
 
@@ -112,7 +112,7 @@ class ParticleRenderer {
   }
 
   createBatch(geometry, material) {
-    const appearance = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 2), 2);
+    const appearance = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 3), 3);
     geometry.setAttribute('lifetimeAppearance', appearance.setUsage(THREE.DynamicDrawUsage));
     const mesh = new THREE.InstancedMesh(geometry, material, CAPACITY);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -136,6 +136,7 @@ class ParticleRenderer {
       const lifeProgress = age / lifetime;
       const opacity = THREE.MathUtils.smoothstep(1 - lifeProgress, 0, 0.75);
       const brightness = brightnessAt(particle.brightness ?? DEFAULT_BRIGHTNESS, lifeProgress);
+      const angle = particle.hue ?? 0;
       object.position.lerpVectors(particle.previous, particle.position, fraction);
       trails.add(particle, object.position, time, lifeScale, opacity, brightness);
       object.rotation.set(rotation[0] + spin[0] * age, rotation[1] + spin[1] * age, rotation[2] + spin[2] * age);
@@ -145,7 +146,7 @@ class ParticleRenderer {
       const index = mesh.count++;
       mesh.setMatrixAt(index, object.matrix);
       mesh.setColorAt(index, GOLD[particle.shade]);
-      mesh.geometry.attributes.lifetimeAppearance.setXY(index, opacity, brightness);
+      mesh.geometry.attributes.lifetimeAppearance.setXYZ(index, opacity, brightness, angle);
 
       const pulse = Math.max(0, Math.sin(particle.phase + age * particle.flashRate));
       if (particle.glint && pulse > 0.79) {
@@ -162,7 +163,7 @@ class ParticleRenderer {
         this.sparkColor ??= new THREE.Color();
         this.sparkColor.setRGB(6 * pulse, 3.25 * pulse, 1.15 * pulse);
         sparks.setColorAt(sparkle, this.sparkColor);
-        sparks.geometry.attributes.lifetimeAppearance.setXY(sparkle, opacity, brightness);
+        sparks.geometry.attributes.lifetimeAppearance.setXYZ(sparkle, opacity, brightness, angle);
       }
     });
     trails.finish();
@@ -173,7 +174,7 @@ class ParticleRenderer {
       batch.instanceColor.addUpdateRange(0, batch.count * 3);
       batch.instanceColor.needsUpdate = true;
       const appearance = batch.geometry.attributes.lifetimeAppearance;
-      appearance.addUpdateRange(0, batch.count * 2);
+      appearance.addUpdateRange(0, batch.count * 3);
       appearance.needsUpdate = true;
     }
   }
