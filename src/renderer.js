@@ -134,7 +134,7 @@ class ParticleRenderer {
     trails.begin(camera, effects);
     simulation.sample(time, (particle, fraction, age) => {
       const { rotation, spin, death, birth } = particle;
-      const lifetime = death - birth;
+      const lifetime = particle.lifetime ?? (death - birth);
       const lifeScale = Math.min(1, (lifetime - age) * 7 + 0.12);
       const lifeProgress = age / lifetime;
       const opacity = THREE.MathUtils.smoothstep(1 - lifeProgress, 0, 0.75);

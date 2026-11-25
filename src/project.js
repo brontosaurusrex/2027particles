@@ -11,7 +11,7 @@ export const MAX_FOCUS_DISTANCE = 300;
 const emitterBounds = {
   rate: [0, 400], lifetime: [0.1, 8], size: [0.02, 0.3], sizeVariation: [0, 150],
   speed: [0, 10], speedVariation: [0, 100], hueVariation: [0, 180], drawSpeed: [0, 100],
-  smoothing: [0, 100], rotationSpeed: [0, 360], rotationVariation: [0, 100],
+  smoothing: [0, 100], rotationSpeed: [0, 360], rotationVariation: [0, 100], splitChance: [0, 100],
 };
 
 const effectBounds = {

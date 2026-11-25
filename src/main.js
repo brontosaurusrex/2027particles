@@ -322,6 +322,7 @@ async function start() {
       ['Hue variation', 'hueVariation', 0, 180, 1, '°'],
       ['Rotation speed', 'rotationSpeed', 0, 360, 1, '°/s'],
       ['Rotation variation', 'rotationVariation', 0, 100, 1, '%'],
+      ['Split chance', 'splitChance', 0, 100, 1, '%'],
     ]) {
       range(emission, label, min, max, step, selected[key], value => {
         selected[key] = value;

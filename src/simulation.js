@@ -11,6 +11,8 @@ export const TRAIL_HISTORY = Math.ceil(2 * MAX_TRAIL_MS / (1000 * STEP)) + 1;
 const TAU = 2 * Math.PI;
 const DEFAULT_ROTATION_SPEED = 180;
 const DEFAULT_ROTATION_VARIATION = 50;
+const BURST_SIZE = 6;
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 export function randomSource(seed) {
   let state = seed >>> 0;
@@ -26,11 +28,11 @@ export function emitterSettings(source = {}) {
   const {
     rate = 115, lifetime = 2.4, size = 0.085, sizeVariation = 100, speed = 2.6,
     speedVariation = 25, hueVariation = 0, drawSpeed = 25, smoothing = 0, brightness = DEFAULT_BRIGHTNESS,
-    rotationSpeed = DEFAULT_ROTATION_SPEED, rotationVariation = DEFAULT_ROTATION_VARIATION,
+    rotationSpeed = DEFAULT_ROTATION_SPEED, rotationVariation = DEFAULT_ROTATION_VARIATION, splitChance = 0,
   } = source;
   return {
     rate, lifetime, size, sizeVariation, speed, speedVariation, hueVariation, drawSpeed, smoothing,
-    rotationSpeed, rotationVariation, brightness: [...brightness],
+    rotationSpeed, rotationVariation, splitChance, brightness: [...brightness],
   };
 }
 
@@ -168,11 +170,19 @@ function particleSpin(random, speed) {
   return axis.normalize().multiplyScalar(speed).toArray();
 }
 
+function particleHistory(position) {
+  return {
+    position, previous: position.clone(),
+    history: new Float32Array(TRAIL_HISTORY * 4), historyNext: 0, historyCount: 0,
+  };
+}
+
 export class Simulation {
   constructor(settings, emitters, shapeChoices) {
     this.settings = settings;
     this.emitters = emitters.map(emitter => ({ ...emitter, ...emitterSampler(emitter), drawDuration: strokeDuration(emitter) }));
     this.shapeChoices = shapeChoices;
+    this.uniqueShapes = [...new Set(shapeChoices)];
     this.reset();
   }
 
@@ -183,11 +193,43 @@ export class Simulation {
     this.hueRandom = randomSource(this.settings.seed ^ 0x9e3779b9);
     this.rotationRandom = randomSource(this.settings.seed ^ 0xc2b2ae35);
     this.trailRandom = randomSource(this.settings.seed ^ 0x85ebca6b);
+    this.splitRandom = randomSource(this.settings.seed ^ 0x27d4eb2f);
+    this.fragmentRandom = randomSource(this.settings.seed ^ 0x165667b1);
   }
 
   seek(frame) {
     if (frame < this.frame) this.reset();
     while (this.frame < frame) this.step();
+  }
+
+  burst(parent, birth) {
+    const random = this.fragmentRandom;
+    const offset = TAU * random();
+    const colorOffset = TAU * random();
+    const shapes = this.uniqueShapes.filter(shape => shape !== parent.shape);
+    const spin = Math.hypot(...parent.spin);
+    for (let index = 0; index < BURST_SIZE; index++) {
+      const z = (2 * (index + 0.5)) / BURST_SIZE - 1;
+      const radius = Math.sqrt(1 - z * z);
+      const angle = offset + index * GOLDEN_ANGLE;
+      const [shape = parent.shape] = shapes.splice(Math.floor(random() * shapes.length), 1);
+      const velocity = new Vector3(radius * Math.cos(angle), radius * Math.sin(angle), z)
+        .multiplyScalar(1.8 + 1.6 * random()).addScaledVector(parent.velocity, 0.5);
+      this.particles.push({
+        birth, death: birth + 0.4 + 0.35 * random(),
+        brightness: parent.brightness,
+        ...particleHistory(parent.position.clone()),
+        velocity,
+        trailLengthJitter: 2 * random() - 1,
+        rotation: [TAU * random(), TAU * random(), TAU * random()],
+        spin: particleSpin(random, spin * (1 + random())),
+        size: parent.size * (0.4 + 0.22 * random()),
+        phase: random() * TAU,
+        flashRate: 10 + 12 * random(),
+        glint: random() < 0.7,
+        shape, shade: parent.shade, hue: (colorOffset + index * TAU / BURST_SIZE + parent.hue) % TAU,
+      });
+    }
   }
 
   step() {
@@ -204,6 +246,7 @@ export class Simulation {
       const hueRange = MathUtils.degToRad(emitter.hueVariation ?? 0);
       const rotationSpeed = MathUtils.degToRad(emitter.rotationSpeed ?? DEFAULT_ROTATION_SPEED);
       const rotationVariation = (emitter.rotationVariation ?? DEFAULT_ROTATION_VARIATION) / 100;
+      const splitChance = (emitter.splitChance ?? 0) / 100;
       const first = Math.floor(start * emitter.rate + 1e-8) + 1;
       const last = Math.floor(Math.min(end, drawDuration) * emitter.rate + 1e-8);
       for (let i = first; i <= last && this.particles.length < CAPACITY; i++) {
@@ -217,16 +260,16 @@ export class Simulation {
           .add(new Vector3(0, 0.66, 0));
         const variation = emitter.speedVariation > 0 ? (2 * random() - 1) * emitter.speedVariation / 100 : 0;
         velocity.multiplyScalar(emitter.speed * (1 + variation));
+        const lifetime = emitter.lifetime * (0.72 + 0.56 * random());
+        const splits = this.splitRandom() < splitChance;
+        const splitAge = lifetime * (0.55 + 0.2 * this.splitRandom());
         this.particles.push({
           birth,
-          death: birth + emitter.lifetime * (0.72 + 0.56 * random()),
+          death: birth + lifetime,
+          burstAt: splits ? birth + splitAge : Infinity,
           brightness: emitter.brightness ?? DEFAULT_BRIGHTNESS,
-          position,
-          previous: position.clone(),
+          ...particleHistory(position),
           velocity,
-          history: new Float32Array(TRAIL_HISTORY * 4),
-          historyNext: 0,
-          historyCount: 0,
           trailLengthJitter: 2 * this.trailRandom() - 1,
           rotation: [TAU * random(), TAU * random(), TAU * random()],
           spin: particleSpin(random, rotationSpeed * (1 + (2 * this.rotationRandom() - 1) * rotationVariation)),
@@ -243,8 +286,11 @@ export class Simulation {
 
     for (const particle of this.particles) {
       const { position, previous, velocity, birth, phase } = particle;
+      const dueToBurst = particle.burstAt <= end;
+      const canBurst = dueToBurst && this.particles.length <= CAPACITY - BURST_SIZE;
+      if (dueToBurst && !canBurst) particle.burstAt = Infinity;
       const sampleTime = Math.max(start, birth);
-      const duration = end - sampleTime;
+      const duration = (canBurst ? particle.burstAt : end) - sampleTime;
       previous.copy(position);
       const offset = particle.historyNext * 4;
       particle.history[offset] = position.x;
@@ -259,6 +305,11 @@ export class Simulation {
       velocity.y += (wind[1] - gravity + turbulence * Math.sin(position.z * 1.8 - start * 1.8 + phase * 2)) * forceTime;
       velocity.z += (wind[2] + turbulence * Math.sin(position.x * 1.7 + start * 1.9 - phase)) * forceTime;
       position.addScaledVector(velocity, duration);
+      if (canBurst) {
+        particle.lifetime = particle.death - birth;
+        particle.death = particle.burstAt;
+        this.burst(particle, particle.burstAt);
+      }
     }
   }
 
@@ -267,7 +318,8 @@ export class Simulation {
     for (const particle of this.particles) {
       if (time < particle.birth || time >= particle.death) continue;
       const start = Math.max(end - STEP, particle.birth);
-      const fraction = MathUtils.clamp((time - start) / (end - start || STEP), 0, 1);
+      const simulatedUntil = Math.min(end, particle.burstAt ?? Infinity);
+      const fraction = MathUtils.clamp((time - start) / (simulatedUntil - start || STEP), 0, 1);
       visit(particle, fraction, time - particle.birth);
     }
   }
