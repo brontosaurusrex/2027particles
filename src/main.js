@@ -1,0 +1,601 @@
+import './style.css';
+import * as THREE from 'three/webgpu';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createRenderer, WIDTH, HEIGHT } from './renderer.js';
+import {
+  EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_TRAIL_MS, STEP, Simulation, createEmitter, emitterRotation, polygonFaces,
+  positionOnStroke, strokeDuration, strokePath, validateStroke,
+} from './simulation.js';
+import { chooseDestination, discardDestination, renderArchive } from './export.js';
+
+const $ = id => document.getElementById(id);
+const stage = $('stage');
+const status = $('backend');
+const hints = {
+  orbit: 'Drag to orbit · Scroll to zoom · Right-drag to pan',
+  line: 'Drag on the grid to draw an open line.',
+  outline: 'Drag on the grid. The last point joins the first.',
+  area: 'Drag around a region to fill it with births.',
+};
+const planeAngles = { xy: [0, 0, 0], xz: [-90, 0, 0], yz: [0, 90, 0] };
+
+async function start() {
+  const forceWebGL = new URLSearchParams(location.search).get('renderer') === 'webgl';
+  const view = await createRenderer(stage, forceWebGL);
+  const { renderer, camera } = view;
+  const orbit = new OrbitControls(camera, renderer.domElement);
+  orbit.minDistance = 1.5;
+  orbit.maxDistance = 36;
+
+  const forces = { gravity: 2.2, wind: [0.35, 0, -0.20], turbulence: 0.90, drag: 1.5, seed: 2027 };
+  const effects = { depth: 1, shutter: 90, focus: 9.6, trail: 110 };
+  const demo = createEmitter(1, 'line', [
+    [-2.4, -0.36], [-1.7, -0.12], [-1.05, 0.15], [-0.45, 0.22], [0.2, 0.17],
+    [0.85, -0.01], [1.6, -0.25], [2.35, -0.54],
+  ]);
+  demo.rate = 155;
+  demo.drawSpeed = 12.5;
+  const emitters = [demo];
+  let nextId = 2;
+  let selected = demo;
+  let simulation = new Simulation(forces, emitters, view.chips.length);
+  let playing = true;
+  let playStart = performance.now();
+  let playFrame = 1;
+  let frame = 1;
+  let dirty = true;
+  let ready = false;
+  let winter = false;
+  let mode = 'orbit';
+  let stroke = null;
+  let exporting = null;
+  let downloadURL;
+  let downloadDestination;
+
+  const guides = new THREE.Scene();
+  const grid = new THREE.GridHelper(36, 72, 0x8d7459, 0x3b4157);
+  grid.material.transparent = true;
+  grid.material.opacity = 0.43;
+  grid.material.depthTest = false;
+  const workPlane = new THREE.Group();
+  grid.rotateX(Math.PI / 2);
+  grid.position.z = -0.002;
+  workPlane.add(grid);
+  guides.add(workPlane);
+  const outlines = new THREE.Group();
+  guides.add(outlines);
+  const animatedOutlines = [];
+  const plane = new THREE.Plane();
+  const ray = new THREE.Raycaster();
+  const zero = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  const point = new THREE.Vector3();
+
+  function resetCamera() {
+    camera.position.set(3.1, 2.38, 8.85);
+    orbit.target.set(0.18, 0.03, 0);
+    orbit.update();
+    dirty = true;
+  }
+  resetCamera();
+
+  function invalidateSimulation() {
+    simulation = new Simulation(forces, emitters, view.chips.length);
+    dirty = true;
+  }
+
+  function updatePlane() {
+    workPlane.rotation.set(...planeAngles[$('plane').value].map(THREE.MathUtils.degToRad));
+    normal.set(0, 0, 1).applyQuaternion(workPlane.quaternion);
+    const offset = $('plane-offset');
+    const distance = THREE.MathUtils.clamp(Number(offset.value) || 0, -12, 12);
+    offset.value = distance;
+    workPlane.position.copy(normal).multiplyScalar(distance);
+    workPlane.updateMatrixWorld(true);
+    plane.setFromNormalAndCoplanarPoint(normal, workPlane.position);
+    dirty = true;
+  }
+
+  function strokePoint(event) {
+    const bounds = stage.getBoundingClientRect();
+    ray.setFromCamera({
+      x: (event.clientX - bounds.left) / bounds.width * 2 - 1,
+      y: 1 - (event.clientY - bounds.top) / bounds.height * 2,
+    }, camera);
+    if (Math.abs(ray.ray.direction.dot(normal)) < 0.045) return null;
+    if (!ray.ray.intersectPlane(plane, point) || point.distanceToSquared(zero) > 1200) return null;
+    workPlane.worldToLocal(point);
+    return [point.x, point.y];
+  }
+
+  function updateGuides() {
+    animatedOutlines.length = 0;
+    for (const group of [...outlines.children]) {
+      group.traverse(object => {
+        object.geometry?.dispose();
+        object.material?.dispose();
+      });
+      group.removeFromParent();
+    }
+    const entries = [...emitters];
+    if (stroke?.points.length > 1) entries.push(stroke);
+    for (const emitter of entries) {
+      const group = new THREE.Group();
+      group.position.set(...emitter.position);
+      group.quaternion.copy(emitterRotation(emitter));
+      const active = emitter === selected || emitter === stroke;
+      const tint = active ? 0xf4c468 : 0x9a907a;
+      const vertices = emitter.points.map(([x, y]) => new THREE.Vector3(x, y, 0));
+      const duration = emitter === stroke ? Infinity : strokeDuration(emitter);
+      const animated = Number.isFinite(duration);
+      const material = new THREE.LineBasicMaterial({
+        color: tint, transparent: true, opacity: animated ? 0.3 : 0.9, depthTest: false,
+      });
+      const linePoints = emitter.kind === 'line' ? vertices : [...vertices, vertices[0]];
+      const geometry = new THREE.BufferGeometry().setFromPoints(linePoints);
+      const line = new THREE.Line(geometry, material);
+      line.renderOrder = 3;
+      group.add(line);
+      if (animated) {
+        const revealed = new THREE.Line(geometry.clone(), material.clone());
+        revealed.material.opacity = 0.95;
+        revealed.renderOrder = 4;
+        group.add(revealed);
+        animatedOutlines.push({ geometry: revealed.geometry, path: strokePath(emitter), duration, tip: 0 });
+      }
+      if (emitter.kind === 'area' && emitter !== stroke) {
+        const area = new THREE.BufferGeometry().setFromPoints(vertices);
+        area.setIndex(polygonFaces(emitter.points).flat());
+        const fill = new THREE.Mesh(area, new THREE.MeshBasicMaterial({
+          color: tint, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthTest: false, depthWrite: false,
+        }));
+        fill.renderOrder = 2;
+        group.add(fill);
+      }
+      outlines.add(group);
+    }
+    dirty = true;
+  }
+
+  function updateGuideProgress() {
+    for (const outline of animatedOutlines) {
+      const { geometry, path, duration, tip } = outline;
+      const { x, y, index } = positionOnStroke(path, frame * STEP / duration);
+      const positions = geometry.attributes.position;
+      positions.setXYZ(tip, ...path.vertices[tip], 0);
+      positions.setXYZ(index, x, y, 0);
+      positions.needsUpdate = true;
+      geometry.setDrawRange(0, index + 1);
+      outline.tip = index;
+    }
+  }
+
+  function setMode(value) {
+    mode = value;
+    orbit.enabled = mode === 'orbit';
+    workPlane.visible = !orbit.enabled;
+    outlines.visible = !orbit.enabled;
+    stage.dataset.draw = String(!orbit.enabled);
+    document.querySelectorAll('[data-mode]').forEach(button =>
+      button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
+    $('hint').textContent = hints[mode];
+    dirty = true;
+  }
+
+  document.querySelectorAll('[data-mode]').forEach(button =>
+    button.addEventListener('click', () => setMode(button.dataset.mode)));
+  $('plane').addEventListener('change', updatePlane);
+  $('plane-offset').addEventListener('change', updatePlane);
+  $('reset-view').addEventListener('click', resetCamera);
+  orbit.addEventListener('change', () => { dirty = true; });
+  updatePlane();
+  setMode('orbit');
+
+  const canvas = renderer.domElement;
+  canvas.addEventListener('pointerdown', event => {
+    if (mode === 'orbit' || stroke || event.button !== 0) return;
+    if (emitters.length >= EMITTER_LIMIT) {
+      $('hint').textContent = `Delete an emitter before adding another. Maximum ${EMITTER_LIMIT}.`;
+      return;
+    }
+    const first = strokePoint(event);
+    if (!first) {
+      $('hint').textContent = 'Choose another plane or orbit until the grid faces the camera.';
+      return;
+    }
+    event.preventDefault();
+    pause();
+    $('hint').textContent = hints[mode];
+    stroke = createEmitter(nextId, mode, [first], workPlane.position.toArray(), planeAngles[$('plane').value]);
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener('pointermove', event => {
+    if (!stroke || !canvas.hasPointerCapture(event.pointerId)) return;
+    const next = strokePoint(event);
+    if (!next) return;
+    const last = stroke.points.at(-1);
+    if (stroke.points.length < 512 && Math.hypot(next[0] - last[0], next[1] - last[1]) >= 0.047) {
+      stroke.points.push(next);
+      updateGuides();
+    }
+  });
+  canvas.addEventListener('pointerup', event => {
+    if (!stroke || !canvas.hasPointerCapture(event.pointerId)) return;
+    const next = strokePoint(event);
+    const last = stroke.points.at(-1);
+    if (next && Math.hypot(next[0] - last[0], next[1] - last[1]) > 0.025 && stroke.points.length < 512) {
+      stroke.points.push(next);
+    }
+    const first = stroke.points[0];
+    if (stroke.kind !== 'line' && stroke.points.length > 2) {
+      const end = stroke.points.at(-1);
+      if (Math.hypot(end[0] - first[0], end[1] - first[1]) < 0.12) stroke.points.pop();
+    }
+    const issue = validateStroke(stroke.kind, stroke.points);
+    if (issue) {
+      $('hint').textContent = issue;
+    } else {
+      nextId++;
+      const count = stroke.points.length;
+      const center = stroke.points.reduce((sum, [x, y]) => [sum[0] + x / count, sum[1] + y / count], [0, 0]);
+      stroke.points = stroke.points.map(([x, y]) => [x - center[0], y - center[1]]);
+      stroke.position = workPlane.localToWorld(new THREE.Vector3(...center, 0)).toArray();
+      emitters.push(stroke);
+      selected = stroke;
+      updateInspector();
+      invalidateSimulation();
+    }
+    stroke = null;
+    updateGuides();
+  });
+  canvas.addEventListener('lostpointercapture', () => {
+    if (!stroke) return;
+    stroke = null;
+    updateGuides();
+  });
+
+  function updateInspector() {
+    const menu = $('emitters');
+    menu.replaceChildren(...emitters.map(emitter => {
+      const label = emitter === demo ? 'Demo line' : `${emitter.kind[0].toUpperCase() + emitter.kind.slice(1)} ${emitter.id}`;
+      return new Option(label, emitter.id, false, emitter === selected);
+    }));
+    if (!selected) menu.add(new Option('Draw an emitter', ''));
+    menu.disabled = !selected;
+    $('emitter-controls').hidden = !selected;
+    if (!selected) return;
+    const emission = $('emission');
+    emission.replaceChildren();
+    for (const [label, key, min, max, step] of [
+      ['Rate / sec', 'rate', 0, 400, 1], ['Lifetime (s)', 'lifetime', 0.1, 8, 0.1],
+      ['Chip size', 'size', 0.02, 0.3, 0.005], ['Launch speed', 'speed', 0, 10, 0.1],
+    ]) {
+      range(emission, label, min, max, step, selected[key], value => {
+        selected[key] = value;
+        invalidateSimulation();
+      });
+    }
+    if (selected.kind !== 'area') {
+      const { input } = range(emission, 'Draw speed', 0, 100, 0.5, selected.drawSpeed, value => {
+        selected.drawSpeed = value;
+        updateGuides();
+        invalidateSimulation();
+      }, '%/s');
+      input.title = 'Percentage of the stroke revealed per second. Set to 0 for continuous emission along the whole stroke.';
+    }
+    const transform = $('transform');
+    transform.replaceChildren();
+    for (const [key, label, min, max, step] of [
+      ['position', 'Position', -24, 24, 0.1], ['rotation', 'Rotation', -360, 360, 1],
+    ]) {
+      ['X', 'Y', 'Z'].forEach((axis, index) => {
+        const value = Number(selected[key][index].toFixed(3));
+        numberField(transform, `${label} ${axis}`, min, max, step, value, changed => {
+          selected[key][index] = changed;
+          updateGuides();
+          invalidateSimulation();
+        });
+      });
+    }
+  }
+
+  $('emitters').addEventListener('change', event => {
+    selected = emitters.find(emitter => emitter.id === Number(event.target.value));
+    updateInspector();
+    updateGuides();
+  });
+  $('delete-emitter').addEventListener('click', () => {
+    if (!selected) return;
+    emitters.splice(emitters.indexOf(selected), 1);
+    selected = emitters.at(-1);
+    updateInspector();
+    updateGuides();
+    invalidateSimulation();
+  });
+
+  const forcePanel = $('forces');
+  range(forcePanel, 'Gravity', -10, 10, 0.1, forces.gravity, value => {
+    forces.gravity = value;
+    invalidateSimulation();
+  });
+  ['X', 'Y', 'Z'].forEach((axis, index) => range(forcePanel, `Wind ${axis}`, -8, 8, 0.05, forces.wind[index], value => {
+    forces.wind[index] = value;
+    invalidateSimulation();
+  }));
+  range(forcePanel, 'Turbulence', 0, 10, 0.05, forces.turbulence, value => {
+    forces.turbulence = value;
+    invalidateSimulation();
+  });
+  range(forcePanel, 'Air drag', 0, 8, 0.1, forces.drag, value => {
+    forces.drag = value;
+    invalidateSimulation();
+  }, ' /s');
+  numberField(forcePanel, 'Seed', 0, 4294967295, 1, forces.seed, value => {
+    forces.seed = Math.round(value);
+    invalidateSimulation();
+  });
+
+  const cameraPanel = $('camera');
+  range(cameraPanel, 'Depth of field', 0, 5, 0.1, effects.depth, value => {
+    effects.depth = value;
+    dirty = true;
+  });
+  range(cameraPanel, 'Shutter angle', 0, 360, 1, effects.shutter, value => {
+    effects.shutter = value;
+    dirty = true;
+  }, '°');
+  range(cameraPanel, 'Trail length', 0, MAX_TRAIL_MS, 10, effects.trail, value => {
+    effects.trail = value;
+    dirty = true;
+  }, ' ms');
+  const focus = range(cameraPanel, 'Focus distance', 0.2, 40, 0.1, effects.focus, value => {
+    effects.focus = value;
+    dirty = true;
+  });
+  const orbitDistance = () => camera.position.distanceTo(orbit.target);
+  focus.input.disabled = true;
+  focus.setValue(orbitDistance());
+  orbit.addEventListener('change', () => {
+    if (focus.input.disabled) focus.setValue(orbitDistance());
+  });
+  $('focus-follow').addEventListener('change', event => {
+    focus.input.disabled = event.target.checked;
+    focus.setValue(orbitDistance());
+    effects.focus = focus.input.valueAsNumber;
+    dirty = true;
+  });
+  $('winter').addEventListener('change', event => {
+    winter = event.target.checked;
+    dirty = true;
+  });
+  updateInspector();
+  updateGuides();
+
+  function seek(value) {
+    frame = THREE.MathUtils.clamp(value, 1, FRAME_COUNT);
+    $('frame').value = String(frame).padStart(3, '0');
+    $('timeline').value = frame;
+    dirty = true;
+  }
+
+  function pause() {
+    playing = false;
+    $('play').textContent = 'Play';
+  }
+
+  function play() {
+    if (frame === FRAME_COUNT) seek(1);
+    playStart = performance.now();
+    playFrame = frame;
+    playing = true;
+    $('play').textContent = 'Pause';
+  }
+
+  $('play').addEventListener('click', () => playing ? pause() : play());
+  const loop = $('loop');
+  $('timeline').addEventListener('input', event => { pause(); seek(Number(event.target.value)); });
+  $('previous').addEventListener('click', () => { pause(); seek(frame - 1); });
+  $('next').addEventListener('click', () => { pause(); seek(frame + 1); });
+  $('restart').addEventListener('click', () => { seek(1); play(); });
+  document.addEventListener('keydown', event => {
+    if (event.code !== 'Space' || event.repeat || event.target !== document.body || $('export-dialog').open) return;
+    event.preventDefault();
+    if (playing) pause();
+    else play();
+  });
+
+  const currentEffects = () => ({
+    ...effects, focus: focus.input.disabled ? orbitDistance() : effects.focus,
+  });
+
+  const profiles = [[1, 4], [0.76, 4], [0.58, 4], [0.45, 3], [0.39, 2]];
+  let quality = 0;
+  let qualityFrames = 0;
+  let elapsed = 0;
+  let lastDraw = 0;
+  let lastWidth = 0;
+  const sizeWatcher = new ResizeObserver(() => { dirty = true; });
+  sizeWatcher.observe(stage);
+
+  renderer.setAnimationLoop(now => {
+    if (!ready || exporting) return;
+    if (playing) {
+      let next = playFrame + Math.floor(Math.max(0, now - playStart) * FPS / 1000);
+      if (next > FRAME_COUNT && loop.checked) {
+        const completedFrames = Math.floor((next - 1) / FRAME_COUNT) * FRAME_COUNT;
+        playStart += (completedFrames - playFrame + 1) * 1000 / FPS;
+        playFrame = 1;
+        next -= completedFrames;
+      }
+      if (next !== frame) seek(next);
+      if (next > FRAME_COUNT) pause();
+    }
+    if (!dirty) return;
+    const [scale, sampleCount] = playing ? profiles[quality] : profiles[0];
+    const width = Math.max(128, Math.round(Math.min(stage.clientWidth * Math.min(devicePixelRatio, 1.5), 1440) * scale));
+    const height = Math.round(width * HEIGHT / WIDTH);
+    dirty = false;
+    if (mode !== 'orbit') updateGuideProgress();
+    view.draw(simulation, frame, camera, currentEffects(), width, height, {
+      exporting: false, sampleCount, winter, overlay: mode === 'orbit' ? null : guides,
+    });
+    if (playing && lastDraw > 0 && width === lastWidth) {
+      elapsed += now - lastDraw;
+      if (++qualityFrames >= 24) {
+        const average = elapsed / qualityFrames;
+        if (average > 25 && quality < profiles.length - 1) quality++;
+        qualityFrames = 0;
+        elapsed = 0;
+      }
+    }
+    lastDraw = playing ? now : 0;
+    lastWidth = width;
+  });
+
+  const exportDialog = $('export-dialog');
+  const progress = $('export-progress');
+  const exportStatus = $('export-status');
+  const done = $('download');
+
+  $('export').addEventListener('click', () => {
+    pause();
+    dirty = true;
+    exportDialog.showModal();
+  });
+  $('close-export').addEventListener('click', () => {
+    if (exporting) exporting.abort();
+    else exportDialog.close();
+  });
+  exportDialog.addEventListener('cancel', event => {
+    if (!exporting) return;
+    event.preventDefault();
+    exporting.abort();
+  });
+  window.addEventListener('pagehide', event => {
+    if (event.persisted || !downloadDestination) return;
+    URL.revokeObjectURL(downloadURL);
+    discardDestination(downloadDestination).catch(() => {});
+  });
+
+  $('export-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (exporting) return;
+    exporting = new AbortController();
+    const signal = exporting.signal;
+    $('start-export').disabled = true;
+    $('close-export').textContent = 'Cancel';
+    $('export-background').disabled = true;
+    done.hidden = true;
+    progress.value = 0;
+    progress.hidden = true;
+    exportStatus.hidden = true;
+    let destination;
+    try {
+      if (downloadURL) {
+        URL.revokeObjectURL(downloadURL);
+        discardDestination(downloadDestination).catch(() => {});
+        downloadURL = null;
+        downloadDestination = null;
+      }
+      destination = await chooseDestination();
+      signal.throwIfAborted();
+      progress.hidden = false;
+      exportStatus.hidden = false;
+      exportStatus.textContent = 'Rendering frame 1 of 500…';
+      const snapshot = {
+        camera: camera.clone(),
+        effects: currentEffects(),
+        forces: structuredClone(forces),
+        emitters: structuredClone(emitters),
+        winter: $('export-background').value === 'winter',
+      };
+      const file = await renderArchive(view, snapshot, destination, signal, rendered => {
+        progress.value = rendered;
+        exportStatus.textContent = `Rendered ${rendered} of ${FRAME_COUNT} frames`;
+      });
+      if (file) {
+        downloadDestination = destination;
+        downloadURL = URL.createObjectURL(file);
+        done.href = downloadURL;
+        done.hidden = false;
+      }
+      exportStatus.textContent = file ? 'The ZIP is ready to download.' : 'The ZIP was saved.';
+    } catch (error) {
+      await discardDestination(destination).catch(() => {});
+      exportStatus.hidden = false;
+      exportStatus.textContent = error.name === 'AbortError' ? 'Export cancelled.' : `Export failed. ${error.message}`;
+      progress.hidden = true;
+      if (error.name !== 'AbortError') console.error(error);
+    } finally {
+      exporting = null;
+      $('start-export').disabled = false;
+      $('close-export').textContent = 'Close';
+      $('export-background').disabled = false;
+      dirty = true;
+    }
+  });
+
+  try {
+    await view.loadEnvironment(`${import.meta.env.BASE_URL}snowy_field_1k.hdr`);
+  } catch (error) {
+    console.error('Could not load the winter environment.', error);
+    $('winter').disabled = true;
+    $('export-background').querySelector('option[value=winter]').disabled = true;
+    $('hint').textContent = 'Could not load winter lighting. You can still preview and export sparks.';
+  }
+  status.textContent = view.isWebGL ? 'WebGL 2' : 'WebGPU';
+  ready = true;
+  $('export').disabled = false;
+  play();
+}
+
+function makeField(container, className, label) {
+  const row = document.createElement('label');
+  row.className = className;
+  const text = document.createElement('span');
+  text.textContent = label;
+  const input = document.createElement('input');
+  input.setAttribute('aria-label', label);
+  row.append(text, input);
+  container.append(row);
+  return { row, input };
+}
+
+function range(container, label, min, max, step, value, onChange, suffix = '') {
+  const { row, input } = makeField(container, 'range-row', label);
+  Object.assign(input, { type: 'range', min, max, step, value });
+  const output = document.createElement('output');
+  row.append(output);
+  const updateReadout = () => { output.value = input.value + suffix; };
+  updateReadout();
+  input.addEventListener('input', () => {
+    updateReadout();
+    onChange(input.valueAsNumber);
+  });
+  return {
+    input,
+    setValue(next) {
+      input.value = next;
+      updateReadout();
+    },
+  };
+}
+
+function numberField(container, label, min, max, step, value, onChange) {
+  const { input } = makeField(container, 'number-row', label);
+  Object.assign(input, { type: 'number', min, max, step, value });
+  let previous = value;
+  input.addEventListener('change', () => {
+    const next = input.valueAsNumber;
+    previous = Number.isFinite(next) ? THREE.MathUtils.clamp(next, min, max) : previous;
+    input.value = previous;
+    onChange(previous);
+  });
+  return input;
+}
+
+start().catch(error => {
+  status.textContent = 'Renderer unavailable';
+  $('hint').textContent = 'This browser could not start WebGPU or WebGL 2.';
+  console.error(error);
+});

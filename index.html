@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11131a">
+  <link rel="icon" href="data:,">
+  <meta name="description" content="Draw 3D particle emitters and render golden sparks to a PNG sequence.">
+  <title>2027 Particles</title>
+</head>
+<body>
+  <header class="masthead">
+    <h1><span aria-hidden="true">✦</span> 2027 Particles</h1>
+    <span id="backend" role="status">Starting renderer…</span>
+    <button id="export" class="primary" type="button" disabled>Export PNG sequence</button>
+  </header>
+  <main>
+    <section class="studio" aria-label="Particle editor">
+      <div class="toolbar" aria-label="Viewport tools">
+        <div class="tools">
+          <button type="button" data-mode="orbit" aria-pressed="true">Orbit</button>
+          <button type="button" data-mode="line" aria-pressed="false">Line</button>
+          <button type="button" data-mode="outline" aria-pressed="false">Outline</button>
+          <button type="button" data-mode="area" aria-pressed="false">Area</button>
+        </div>
+        <label class="plane">Plane
+          <select id="plane" aria-label="Drawing plane">
+            <option value="xy">XY</option><option value="xz">XZ</option><option value="yz">YZ</option>
+          </select>
+        </label>
+        <label class="plane offset">Offset <input id="plane-offset" type="number" value="0" min="-12" max="12" step="0.25"></label>
+        <button id="reset-view" type="button">Reset view</button>
+      </div>
+      <div id="viewport" class="viewport">
+        <div id="stage" class="stage" aria-label="3D viewport">
+          <div class="frame-guide" aria-hidden="true"></div>
+        </div>
+        <span class="viewport-label">1920 × 1080</span>
+        <p id="hint" class="hint" role="status">Drag to orbit · Scroll to zoom · Right-drag to pan</p>
+      </div>
+      <div class="timeline">
+        <div class="transport">
+          <button id="restart" type="button" aria-label="Restart">|◀</button>
+          <button id="previous" type="button" aria-label="Previous frame">◀</button>
+          <button id="play" type="button">Pause</button>
+          <button id="next" type="button" aria-label="Next frame">▶</button>
+          <label class="loop"><input id="loop" type="checkbox"> Loop</label>
+        </div>
+        <div class="scrubber">
+          <input id="timeline" type="range" min="1" max="500" value="1" aria-label="Timeline frame">
+          <div class="ticks"><span>0s</span><span>2s</span><span>4s</span><span>6s</span><span>8s</span><span>10s</span></div>
+        </div>
+        <div class="time"><output id="frame" for="timeline">001</output> / 500 <span>50 fps</span></div>
+      </div>
+    </section>
+    <aside class="inspector" aria-label="Scene controls">
+      <details open>
+        <summary>Emitters</summary>
+        <div class="section-body">
+          <label class="select-row">Selected <select id="emitters" aria-label="Selected emitter"></select></label>
+          <div id="emitter-controls">
+            <div id="emission"></div>
+            <details class="transform">
+              <summary>Transform</summary>
+              <div id="transform"></div>
+            </details>
+            <button type="button" id="delete-emitter">Delete emitter</button>
+          </div>
+        </div>
+      </details>
+      <details open>
+        <summary>Forces</summary>
+        <div class="section-body" id="forces"></div>
+      </details>
+      <details open>
+        <summary>Camera</summary>
+        <div class="section-body" id="camera">
+          <label class="check"><input type="checkbox" id="winter"> Show winter backdrop</label>
+          <label class="check"><input type="checkbox" id="focus-follow" checked> Focus on orbit target</label>
+        </div>
+      </details>
+    </aside>
+  </main>
+  <dialog id="export-dialog" aria-labelledby="export-title">
+    <form id="export-form">
+      <h2 id="export-title">Export PNG sequence</h2>
+      <p>500 frames · 1920 × 1080 · 50 fps</p>
+      <label class="select-row">Background
+        <select id="export-background">
+          <option value="transparent">Transparent</option>
+          <option value="winter">Winter backdrop</option>
+        </select>
+      </label>
+      <progress id="export-progress" max="500" value="0" hidden aria-label="Frames rendered"></progress>
+      <p id="export-status" role="status" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="close-export">Close</button>
+        <button type="submit" id="start-export" class="primary">Export ZIP</button>
+        <a id="download" class="primary" download="2027particles.zip" hidden>Download ZIP</a>
+      </div>
+    </form>
+  </dialog>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
