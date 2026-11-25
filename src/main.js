@@ -48,6 +48,7 @@ async function start() {
   let dirty = true;
   let ready = false;
   let winter = false;
+  let previewFullscreen = false;
   let mode = 'orbit';
   let stroke = null;
   let exporting = null;
@@ -174,10 +175,11 @@ async function start() {
 
   function setMode(value) {
     mode = value;
-    orbit.enabled = mode === 'orbit';
-    workPlane.visible = !orbit.enabled;
-    outlines.visible = !orbit.enabled;
-    stage.dataset.draw = String(!orbit.enabled);
+    const drawing = mode !== 'orbit';
+    orbit.enabled = !drawing && !previewFullscreen;
+    workPlane.visible = drawing;
+    outlines.visible = drawing;
+    stage.dataset.draw = String(drawing);
     document.querySelectorAll('[data-mode]').forEach(button =>
       button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
     $('hint').textContent = hints[mode];
@@ -189,21 +191,23 @@ async function start() {
   $('plane').addEventListener('change', updatePlane);
   $('plane-offset').addEventListener('change', updatePlane);
   $('reset-view').addEventListener('click', resetCamera);
-  const studio = document.querySelector('.studio');
+  const viewport = $('viewport');
   const fullscreen = $('fullscreen');
   fullscreen.disabled = !document.fullscreenEnabled;
   fullscreen.addEventListener('click', async () => {
     try {
-      if (document.fullscreenElement === studio) await document.exitFullscreen();
-      else await studio.requestFullscreen();
+      await viewport.requestFullscreen();
     } catch {
       $('hint').textContent = 'Fullscreen is unavailable in this browser window.';
     }
   });
   document.addEventListener('fullscreenchange', () => {
-    const active = document.fullscreenElement === studio;
+    const active = document.fullscreenElement === viewport;
+    if (previewFullscreen === active) return;
+    previewFullscreen = active;
+    orbit.enabled = !active && mode === 'orbit';
     fullscreen.setAttribute('aria-pressed', String(active));
-    fullscreen.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+    (active ? viewport : fullscreen).focus({ preventScroll: true });
     dirty = true;
   });
   orbit.addEventListener('change', () => { dirty = true; });
@@ -212,7 +216,7 @@ async function start() {
 
   const canvas = renderer.domElement;
   canvas.addEventListener('pointerdown', event => {
-    if (mode === 'orbit' || stroke || event.button !== 0) return;
+    if (previewFullscreen || mode === 'orbit' || stroke || event.button !== 0) return;
     if (emitters.length >= EMITTER_LIMIT) {
       $('hint').textContent = `Delete an emitter before adding another. Maximum ${EMITTER_LIMIT}.`;
       return;
@@ -435,17 +439,22 @@ async function start() {
     $('play').textContent = 'Pause';
   }
 
-  $('play').addEventListener('click', () => playing ? pause() : play());
+  const togglePlayback = () => playing ? pause() : play();
+  $('play').addEventListener('click', togglePlayback);
   const loop = $('loop');
   $('timeline').addEventListener('input', event => { pause(); seek(Number(event.target.value)); });
   $('previous').addEventListener('click', () => { pause(); seek(frame - 1); });
   $('next').addEventListener('click', () => { pause(); seek(frame + 1); });
   $('restart').addEventListener('click', () => { seek(1); play(); });
   document.addEventListener('keydown', event => {
-    if (event.code !== 'Space' || event.repeat || event.target !== document.body || $('export-dialog').open) return;
+    if (previewFullscreen && event.key === 'Escape' && document.fullscreenElement === viewport) {
+      event.preventDefault();
+      document.exitFullscreen().catch(() => {});
+      return;
+    }
+    if (event.code !== 'Space' || $('export-dialog').open || (!previewFullscreen && event.target !== document.body)) return;
     event.preventDefault();
-    if (playing) pause();
-    else play();
+    if (!event.repeat) togglePlayback();
   });
 
   const currentEffects = () => ({
@@ -476,12 +485,14 @@ async function start() {
     }
     if (!dirty) return;
     const [scale, sampleCount] = playing ? profiles[quality] : profiles[0];
-    const width = Math.max(128, Math.round(Math.min(stage.clientWidth * Math.min(devicePixelRatio, 1.5), 1440) * scale));
+    const maxWidth = previewFullscreen ? WIDTH : 1440;
+    const width = Math.max(128, Math.round(Math.min(stage.clientWidth * Math.min(devicePixelRatio, 1.5), maxWidth) * scale));
     const height = Math.round(width * HEIGHT / WIDTH);
     dirty = false;
-    if (mode !== 'orbit') updateGuideProgress();
+    const showGuides = mode !== 'orbit' && !previewFullscreen;
+    if (showGuides) updateGuideProgress();
     view.draw(simulation, frame, camera, currentEffects(), width, height, {
-      exporting: false, sampleCount, winter, overlay: mode === 'orbit' ? null : guides,
+      exporting: false, sampleCount, winter, overlay: showGuides ? guides : null,
     });
     if (playing && lastDraw > 0 && width === lastWidth) {
       elapsed += now - lastDraw;

@@ -11,7 +11,9 @@ Open the Local URL printed by Vite. Three.js uses WebGPU when available and fall
 
 Choose Line, Outline, or Area and drag on the work plane. Change the plane or offset before drawing. Use the emitter inspector to change its position, rotation, and emission. Orbit mode lets you drag to orbit, scroll to zoom, and right-drag to pan.
 
-Use Fullscreen to enlarge the viewport while keeping the timeline visible. Each emitter has its own launch Speed variation and Lifetime brightness curve. Drag the curve points or enter brightness percentages at the five ages. Particles become more transparent near the end of their lives.
+Use Fullscreen for a clean animation preview. Press Space to play or pause and Escape to return to the editor.
+
+Each emitter has its own launch Speed variation and Lifetime brightness curve. Drag the curve points or enter brightness percentages at the five ages. Particles become more transparent near the end of their lives.
 
 Size variation controls the spread around the selected emitter's Chip size. Set it to 0% for equal-sized chips, 100% for the default mix, or up to 150% for a wider mix.
 
