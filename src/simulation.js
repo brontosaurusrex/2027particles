@@ -169,10 +169,10 @@ function particleSpin(random, speed) {
 }
 
 export class Simulation {
-  constructor(settings, emitters, shapeCount) {
+  constructor(settings, emitters, shapeChoices) {
     this.settings = settings;
     this.emitters = emitters.map(emitter => ({ ...emitter, ...emitterSampler(emitter), drawDuration: strokeDuration(emitter) }));
-    this.shapeCount = shapeCount;
+    this.shapeChoices = shapeChoices;
     this.reset();
   }
 
@@ -234,7 +234,7 @@ export class Simulation {
           phase: random() * TAU,
           flashRate: 6 + 14 * random(),
           glint: random() < 0.46,
-          shape: Math.floor(random() * this.shapeCount),
+          shape: this.shapeChoices[Math.floor(random() * this.shapeChoices.length)],
           shade: Math.floor(random() * 5),
           hue: (this.hueRandom() * 2 - 1) * hueRange,
         });

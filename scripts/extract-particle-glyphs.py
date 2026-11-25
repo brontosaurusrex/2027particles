@@ -13,7 +13,6 @@ SYMBOLS = {
     "circle": "●",
     "plus": "✚",
     "sparkle": "✦",
-    "diamond": "◆",
     "flower": "✿",
     "lightning": "⚡",
     "ring": "○",

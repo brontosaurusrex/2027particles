@@ -11,11 +11,13 @@ Open the Local URL printed by Vite. Three.js uses WebGPU when available and fall
 
 Choose Line, Outline, or Area and drag on the work plane. Change the plane or offset before drawing. Use the emitter inspector to change its position, rotation, and emission. Orbit mode lets you drag to orbit, scroll to zoom, and right-drag to pan.
 
-Use Fullscreen for a clean animation preview. Press Space to play or pause and Escape to return to the editor.
+Save project downloads a JSON file with the emitters, camera, forces, trail and blur settings, drawing plane, timeline and export preferences. Load project restores that file in the editor. Project slots hold the same full scene in 20 named slots in your browser. Use Rename to change a slot's name while keeping its saved scene.
+
+Use Fullscreen for a clean animation preview. Drag to orbit or scroll to zoom. Press Space to play or pause and Escape to return to the editor.
 
 Each emitter has its own launch Speed variation and Lifetime brightness curve. Drag the curve points or enter brightness percentages at the five ages. Particles become more transparent near the end of their lives.
 
-Every emitter uses a mix of ♥ hearts, ★ stars, ❄ snowflakes, ● solid circles, ✚ plus signs, ✦ sparkles, ◆ diamonds, ✿ flowers, ⚡ lightning bolts, and ○ rings.
+Every emitter uses a mix of ♥ hearts, ★ stars, ❄ snowflakes, ● solid circles, ✚ plus signs, ✦ sparkles, ✿ flowers, ⚡ lightning bolts, and ○ rings. Solid circles appear twice as often as each other shape.
 
 Rotation speed sets the tumble rate in degrees per second. Rotation variation spreads that rate above and below the selected speed. Set speed to 0°/s to hold each particle's starting orientation.
 
@@ -25,13 +27,15 @@ Hue variation gives each particle from the selected emitter a consistent random 
 
 Lines and outlines emit from the moving tip as they draw in. Set Draw speed to 25%/s for a four-second reveal, or to 0%/s for continuous emission along the whole stroke.
 
-Use Smoothing on a line or outline to round its corners. New emitters start with the most recently drawn emitter's settings. The 20 Emitter preset slots save settings in the current browser. Loading a slot applies it to the selected emitter and keeps its shape and placement.
+Use Smoothing on a line or outline to round its corners. New emitters start with the most recently drawn emitter's settings. An old emitter preset opens in a starter scene, where it can be saved as a full project.
 
 Export SVG frame saves the current camera and timeline frame as editable paths and gradients with a transparent background. The SVG includes the chips, glints, and motion trails. Use PNG export for the winter photo, depth of field, and shutter blur.
 
 Increase Air drag under Forces to slow particles throughout their flight and keep wind and turbulence from carrying them as far.
 
-Camera controls adjust depth of field, focus distance, shutter angle, and trail length. Uncheck Focus on orbit target to set the distance manually with the slider. A 90° shutter gives a 5 ms exposure at 50 fps. Trail length controls how far back along each particle's motion the gold trail extends, up to 1.2 seconds. Export uses the current camera and creates a ZIP with 500 consecutively numbered 1920 × 1080 PNGs. Choose transparent frames or include the winter backdrop. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.
+The 25–200 mm full-frame focal length control moves the camera along its viewing axis to keep the orbit target at the same apparent size. Focus distance sets the sharp plane independently of the camera position. Use Depth of field to soften the particles in front of and behind that plane.
+
+A 90° shutter gives a 5 ms exposure at 50 fps. Trail length controls how far back along each particle's motion the gold trail extends, up to 1.2 seconds. Export uses the current camera and creates a ZIP with 500 consecutively numbered 1920 × 1080 PNGs. Choose transparent frames or include the winter backdrop. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.
 
 Trail width scales ribbon thickness from 0% to 300%. Trail length variation gives individual particles shorter and longer trails around the selected length. At 100% variation, a trail can last up to twice that length.
 

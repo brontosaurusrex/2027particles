@@ -50,6 +50,8 @@ class ParticleRenderer {
       transparent: true, depthWrite: false,
     }));
     this.chips = chipGeometries().map(geometry => this.createBatch(geometry, gold));
+    this.shapeChoices = this.chips.flatMap((mesh, index) =>
+      mesh.geometry.userData.symbol === 'circle' ? [index, index] : [index]);
 
     const star = new THREE.Shape();
     const points = [[0, 1], [0.12, 0.12], [0.78, 0], [0.12, -0.12], [0, -1],
@@ -204,7 +206,7 @@ class ParticleRenderer {
     const { exporting, sampleCount, winter, overlay } = options;
     const count = settings.depth || settings.shutter ? sampleCount : 1;
     const focus = Math.max(camera.near * 2, settings.focus);
-    const aperture = focus * settings.depth * 0.0014;
+    const aperture = focus * settings.depth * 0.007;
     const exposure = STEP * settings.shutter / 360;
     if (!exporting && (renderer.domElement.width !== width || renderer.domElement.height !== height)) {
       renderer.setSize(width, height, false);

@@ -13,7 +13,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 340px; }
 button, select, input { font: inherit; }
-button, select, input[type=number], .primary {
+button, select, input[type=number], input[type=text], .primary {
   border: 1px solid var(--line);
   background: var(--control);
   color: inherit;
@@ -38,6 +38,8 @@ input[type=range], input[type=checkbox], progress { accent-color: var(--gold); }
 h1 { font-size: 1.16rem; margin: 0 auto 0 0; letter-spacing: .015em; }
 h1 span { color: var(--gold); margin-right: .34rem; }
 .export-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.project-actions { display: flex; gap: 4px; }
+#project-status { color: var(--muted); font-size: .88rem; }
 #backend, .ticks, .time span { color: var(--muted); }
 #backend { font-size: .88rem; }
 main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; height: calc(100dvh - 62px); }
@@ -112,8 +114,10 @@ summary { padding: 13px 15px; font-weight: 650; }
 .brightness-values label { min-width: 0; color: var(--muted); font-size: .82rem; text-align: center; }
 .brightness-values input { width: 100%; padding: .28rem .15rem; text-align: center; appearance: textfield; }
 .brightness-values input::-webkit-inner-spin-button { appearance: none; }
-.preset-actions { display: flex; gap: 6px; margin-top: 6px; }
-.preset-status { color: var(--muted); font-size: .9rem; margin: 7px 0 0; }
+#slots-dialog h2 { margin-bottom: .7rem; }
+#slots-dialog select, #slots-dialog input { width: min(68%, 16rem); }
+#slots-dialog .select-row + .select-row { margin-top: .4rem; }
+#slots-dialog .dialog-actions { flex-wrap: wrap; }
 #delete-emitter { margin-top: 3px; }
 dialog { width: min(438px, calc(100vw - 32px)); padding: 23px; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
 dialog::backdrop { background: #080911bb; }

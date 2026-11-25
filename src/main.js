@@ -9,7 +9,10 @@ import {
 import { chooseDestination, discardDestination, renderArchive } from './export.js';
 import { renderVectorFrame } from './export-svg.js';
 import { mountBrightnessEditor } from './brightness-editor.js';
-import { mountEmitterPresets } from './emitter-presets.js';
+import { mountProjectSlots } from './project-slots.js';
+import {
+  DEFAULT_FOCAL_LENGTH, FOCAL_LENGTH_BOUNDS, MAX_FOCUS_DISTANCE, encodeProject, readProject,
+} from './project.js';
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
@@ -26,9 +29,8 @@ async function start() {
   const forceWebGL = new URLSearchParams(location.search).get('renderer') === 'webgl';
   const view = await createRenderer(stage, forceWebGL);
   const { renderer, camera } = view;
+  camera.filmGauge = 36;
   const orbit = new OrbitControls(camera, renderer.domElement);
-  orbit.minDistance = 1.5;
-  orbit.maxDistance = 36;
 
   const forces = { gravity: 2.2, wind: [0.35, 0, -0.20], turbulence: 0.90, drag: 1.5, seed: 2027 };
   const effects = { depth: 1, shutter: 90, focus: 9.6, trail: 110, trailWidth: 100, trailLengthVariation: 0 };
@@ -41,7 +43,7 @@ async function start() {
   const emitters = [demo];
   let nextId = 2;
   let selected = demo;
-  let simulation = new Simulation(forces, emitters, view.chips.length);
+  let simulation = new Simulation(forces, emitters, view.shapeChoices);
   let playing = true;
   let playStart = performance.now();
   let playFrame = 1;
@@ -49,6 +51,7 @@ async function start() {
   let dirty = true;
   let ready = false;
   let winter = false;
+  let focalLength = DEFAULT_FOCAL_LENGTH;
   let previewFullscreen = false;
   let mode = 'orbit';
   let stroke = null;
@@ -75,16 +78,29 @@ async function start() {
   const normal = new THREE.Vector3();
   const point = new THREE.Vector3();
 
+  function setLens(value, keepFraming = false) {
+    if (keepFraming) {
+      camera.position.sub(orbit.target).multiplyScalar(value / focalLength).add(orbit.target);
+    }
+    focalLength = value;
+    const scale = value / DEFAULT_FOCAL_LENGTH;
+    orbit.minDistance = 1.5 * scale;
+    orbit.maxDistance = 36 * scale;
+    camera.far = Math.max(120, orbit.maxDistance + 60);
+    camera.setFocalLength(value);
+    orbit.update();
+    dirty = true;
+  }
+
   function resetCamera() {
     camera.position.set(3.1, 2.38, 8.85);
     orbit.target.set(0.18, 0.03, 0);
-    orbit.update();
-    dirty = true;
+    setLens(DEFAULT_FOCAL_LENGTH);
   }
   resetCamera();
 
   function invalidateSimulation() {
-    simulation = new Simulation(forces, emitters, view.chips.length);
+    simulation = new Simulation(forces, emitters, view.shapeChoices);
     dirty = true;
   }
 
@@ -177,7 +193,7 @@ async function start() {
   function setMode(value) {
     mode = value;
     const drawing = mode !== 'orbit';
-    orbit.enabled = !drawing && !previewFullscreen;
+    orbit.enabled = previewFullscreen || !drawing;
     workPlane.visible = drawing;
     outlines.visible = drawing;
     stage.dataset.draw = String(drawing);
@@ -191,7 +207,10 @@ async function start() {
     button.addEventListener('click', () => setMode(button.dataset.mode)));
   $('plane').addEventListener('change', updatePlane);
   $('plane-offset').addEventListener('change', updatePlane);
-  $('reset-view').addEventListener('click', resetCamera);
+  $('reset-view').addEventListener('click', () => {
+    resetCamera();
+    focalLengthInput.setValue(focalLength);
+  });
   const viewport = $('viewport');
   const fullscreen = $('fullscreen');
   fullscreen.disabled = !document.fullscreenEnabled;
@@ -206,7 +225,7 @@ async function start() {
     const active = document.fullscreenElement === viewport;
     if (previewFullscreen === active) return;
     previewFullscreen = active;
-    orbit.enabled = !active && mode === 'orbit';
+    orbit.enabled = active || mode === 'orbit';
     fullscreen.setAttribute('aria-pressed', String(active));
     (active ? viewport : fullscreen).focus({ preventScroll: true });
     dirty = true;
@@ -284,17 +303,10 @@ async function start() {
     selected.brightness = curve;
     invalidateSimulation();
   });
-  mountEmitterPresets($('emitter-presets'), () => selected, settings => {
-    Object.assign(selected, settings);
-    updateInspector();
-    updateGuides();
-    invalidateSimulation();
-  });
-
   function updateInspector() {
     const menu = $('emitters');
     menu.replaceChildren(...emitters.map(emitter => {
-      const label = emitter === demo ? 'Demo line' : `${emitter.kind[0].toUpperCase() + emitter.kind.slice(1)} ${emitter.id}`;
+      const label = emitter.id === demo.id ? 'Demo line' : `${emitter.kind[0].toUpperCase() + emitter.kind.slice(1)} ${emitter.id}`;
       return new Option(label, emitter.id, false, emitter === selected);
     }));
     if (!selected) menu.add(new Option('Draw an emitter', ''));
@@ -366,64 +378,42 @@ async function start() {
   });
 
   const forcePanel = $('forces');
-  range(forcePanel, 'Gravity', -10, 10, 0.1, forces.gravity, value => {
-    forces.gravity = value;
-    invalidateSimulation();
-  });
-  ['X', 'Y', 'Z'].forEach((axis, index) => range(forcePanel, `Wind ${axis}`, -8, 8, 0.05, forces.wind[index], value => {
-    forces.wind[index] = value;
-    invalidateSimulation();
-  }));
-  range(forcePanel, 'Turbulence', 0, 10, 0.05, forces.turbulence, value => {
-    forces.turbulence = value;
-    invalidateSimulation();
-  });
-  range(forcePanel, 'Air drag', 0, 8, 0.1, forces.drag, value => {
-    forces.drag = value;
-    invalidateSimulation();
-  }, ' /s');
-  numberField(forcePanel, 'Seed', 0, 4294967295, 1, forces.seed, value => {
+  const forceFields = [
+    ...settingsRanges(forcePanel, forces, [['gravity', 'Gravity', -10, 10, 0.1]], invalidateSimulation),
+    ...settingsRanges(forcePanel, forces.wind, ['X', 'Y', 'Z'].map((axis, index) =>
+      [index, `Wind ${axis}`, -8, 8, 0.05]), invalidateSimulation),
+    ...settingsRanges(forcePanel, forces, [
+      ['turbulence', 'Turbulence', 0, 10, 0.05], ['drag', 'Air drag', 0, 8, 0.1, ' /s'],
+    ], invalidateSimulation),
+  ];
+  const seedField = numberField(forcePanel, 'Seed', 0, 4294967295, 1, forces.seed, value => {
     forces.seed = Math.round(value);
     invalidateSimulation();
   });
 
   const cameraPanel = $('camera');
-  range(cameraPanel, 'Depth of field', 0, 5, 0.1, effects.depth, value => {
-    effects.depth = value;
-    dirty = true;
-  });
-  range(cameraPanel, 'Shutter angle', 0, 360, 1, effects.shutter, value => {
-    effects.shutter = value;
-    dirty = true;
-  }, '°');
-  range(cameraPanel, 'Trail length', 0, MAX_TRAIL_MS, 10, effects.trail, value => {
-    effects.trail = value;
-    dirty = true;
-  }, ' ms');
-  range(cameraPanel, 'Trail width', 0, 300, 1, effects.trailWidth, value => {
-    effects.trailWidth = value;
-    dirty = true;
-  }, '%');
-  range(cameraPanel, 'Trail length variation', 0, 100, 1, effects.trailLengthVariation, value => {
-    effects.trailLengthVariation = value;
-    dirty = true;
-  }, '%');
+  const focalLengthInput = range(cameraPanel, 'Focal length', ...FOCAL_LENGTH_BOUNDS, 1, focalLength, value => {
+    setLens(value, true);
+    syncFocusRange();
+  }, ' mm');
+  const effectFields = settingsRanges(cameraPanel, effects, [
+    ['depth', 'Depth of field', 0, 5, 0.1], ['shutter', 'Shutter angle', 0, 360, 1, '°'],
+    ['trail', 'Trail length', 0, MAX_TRAIL_MS, 10, ' ms'],
+    ['trailWidth', 'Trail width', 0, 300, 1, '%'],
+    ['trailLengthVariation', 'Trail length variation', 0, 100, 1, '%'],
+  ], () => { dirty = true; });
+  effectFields[0].input.title = 'Higher values soften particles in front of and behind the focus distance.';
   const focus = range(cameraPanel, 'Focus distance', 0.2, 40, 0.1, effects.focus, value => {
     effects.focus = value;
     dirty = true;
   });
-  const orbitDistance = () => camera.position.distanceTo(orbit.target);
-  focus.input.disabled = true;
-  focus.setValue(orbitDistance());
-  orbit.addEventListener('change', () => {
-    if (focus.input.disabled) focus.setValue(orbitDistance());
-  });
-  $('focus-follow').addEventListener('change', event => {
-    focus.input.disabled = event.target.checked;
-    focus.setValue(orbitDistance());
-    effects.focus = focus.input.valueAsNumber;
-    dirty = true;
-  });
+  focus.input.title = 'Distance from the camera lens to the plane that stays sharp.';
+  function syncFocusRange() {
+    const distance = camera.position.distanceTo(orbit.target);
+    focus.input.max = Math.min(MAX_FOCUS_DISTANCE, Math.max(40, effects.focus, Math.ceil(distance + 15)));
+    focus.setValue(effects.focus);
+  }
+  orbit.addEventListener('change', syncFocusRange);
   $('winter').addEventListener('change', event => {
     winter = event.target.checked;
     dirty = true;
@@ -443,8 +433,8 @@ async function start() {
     $('play').textContent = 'Play';
   }
 
-  function play() {
-    if (frame === FRAME_COUNT) seek(1);
+  function play(restartAtEnd = true) {
+    if (restartAtEnd && frame === FRAME_COUNT) seek(1);
     playStart = performance.now();
     playFrame = frame;
     playing = true;
@@ -464,13 +454,10 @@ async function start() {
       document.exitFullscreen().catch(() => {});
       return;
     }
-    if (event.code !== 'Space' || $('export-dialog').open || (!previewFullscreen && event.target !== document.body)) return;
+    if (event.code !== 'Space' || $('export-dialog').open || $('slots-dialog').open ||
+        (!previewFullscreen && event.target !== document.body)) return;
     event.preventDefault();
     if (!event.repeat) togglePlayback();
-  });
-
-  const currentEffects = () => ({
-    ...effects, focus: focus.input.disabled ? orbitDistance() : effects.focus,
   });
 
   const profiles = [[1, 4], [0.76, 4], [0.58, 4], [0.45, 3], [0.39, 2]];
@@ -497,14 +484,15 @@ async function start() {
     }
     if (!dirty) return;
     const [scale, sampleCount] = playing ? profiles[quality] : profiles[0];
+    const previewSamples = effects.depth >= 2.5 ? (playing ? sampleCount * 2 : 16) : sampleCount;
     const maxWidth = previewFullscreen ? WIDTH : 1440;
     const width = Math.max(128, Math.round(Math.min(stage.clientWidth * Math.min(devicePixelRatio, 1.5), maxWidth) * scale));
     const height = Math.round(width * HEIGHT / WIDTH);
     dirty = false;
     const showGuides = mode !== 'orbit' && !previewFullscreen;
     if (showGuides) updateGuideProgress();
-    view.draw(simulation, frame, camera, currentEffects(), width, height, {
-      exporting: false, sampleCount, winter, overlay: showGuides ? guides : null,
+    view.draw(simulation, frame, camera, effects, width, height, {
+      exporting: false, sampleCount: previewSamples, winter, overlay: showGuides ? guides : null,
     });
     if (playing && lastDraw > 0 && width === lastWidth) {
       elapsed += now - lastDraw;
@@ -523,19 +511,90 @@ async function start() {
   const progress = $('export-progress');
   const exportStatus = $('export-status');
   const done = $('download');
+  const exportBackground = $('export-background');
+  const projectFile = $('project-file');
+  const projectStatus = $('project-status');
+
+  function captureProject() {
+    return {
+      emitters, selectedEmitterId: selected?.id ?? null, nextEmitterId: nextId,
+      forces, effects,
+      camera: {
+        position: camera.position.toArray(), target: orbit.target.toArray(), focalLength, winter,
+      },
+      editor: { mode, plane: $('plane').value, planeOffset: Number($('plane-offset').value) },
+      playback: { frame, playing, loop: loop.checked },
+      exportBackground: exportBackground.value,
+    };
+  }
+
+  mountProjectSlots($('slots-dialog'), $('project-slots'), captureProject, restoreProject, structuredClone(captureProject()));
+
+  $('save-project').addEventListener('click', () => {
+    const json = encodeProject(captureProject());
+    downloadFile(json, 'application/json', '2027-particles.project.json');
+  });
+  $('load-project').addEventListener('click', () => projectFile.click());
+  projectFile.addEventListener('change', async () => {
+    const file = projectFile.files[0];
+    projectFile.value = '';
+    if (!file) return;
+    $('load-project').disabled = true;
+    projectStatus.hidden = true;
+    try {
+      const project = await readProject(file);
+      if (exportDialog.open) throw new Error('Close the PNG export dialog before loading a project.');
+      restoreProject(project);
+      projectStatus.textContent = 'Project loaded.';
+    } catch (error) {
+      projectStatus.textContent = error.message;
+    } finally {
+      $('load-project').disabled = false;
+      projectStatus.hidden = false;
+    }
+  });
+
+  function restoreProject(project) {
+    const { wind, ...savedForces } = project.forces;
+    Object.assign(forces, savedForces);
+    forces.wind.splice(0, 3, ...wind);
+    Object.assign(effects, project.effects);
+    forceFields.forEach(field => field.sync());
+    seedField.setValue(forces.seed);
+    effectFields.forEach(field => field.sync());
+
+    camera.position.fromArray(project.camera.position);
+    orbit.target.fromArray(project.camera.target);
+    setLens(project.camera.focalLength);
+    focalLengthInput.setValue(focalLength);
+    syncFocusRange();
+    winter = project.camera.winter;
+    $('winter').checked = winter;
+    exportBackground.value = project.exportBackground;
+
+    stroke = null;
+    emitters.splice(0, emitters.length, ...project.emitters);
+    selected = emitters.find(emitter => emitter.id === project.selectedEmitterId);
+    nextId = project.nextEmitterId;
+    $('plane').value = project.editor.plane;
+    $('plane-offset').value = project.editor.planeOffset;
+    setMode(project.editor.mode);
+    updatePlane();
+    updateInspector();
+    updateGuides();
+    invalidateSimulation();
+
+    loop.checked = project.playback.loop;
+    seek(project.playback.frame);
+    if (project.playback.playing) play(false);
+    else pause();
+  }
 
   $('export-svg').addEventListener('click', () => {
     if (exporting) return;
     try {
-      const svg = renderVectorFrame(view, simulation, frame, camera, currentEffects());
-      const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `frame_${String(frame).padStart(4, '0')}.svg`;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const svg = renderVectorFrame(view, simulation, frame, camera, effects);
+      downloadFile(svg, 'image/svg+xml', `frame_${String(frame).padStart(4, '0')}.svg`);
     } catch (error) {
       $('hint').textContent = 'Could not export this frame as SVG.';
       console.error(error);
@@ -590,7 +649,7 @@ async function start() {
       exportStatus.textContent = 'Rendering frame 1 of 500…';
       const snapshot = {
         camera: camera.clone(),
-        effects: currentEffects(),
+        effects: { ...effects },
         forces: structuredClone(forces),
         emitters: structuredClone(emitters),
         winter: $('export-background').value === 'winter',
@@ -633,7 +692,31 @@ async function start() {
   ready = true;
   $('export').disabled = false;
   $('export-svg').disabled = false;
+  $('save-project').disabled = false;
+  $('load-project').disabled = false;
+  $('project-slots').disabled = false;
   play();
+}
+
+function downloadFile(contents, type, name) {
+  const url = URL.createObjectURL(new Blob([contents], { type }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function settingsRanges(container, settings, specs, onChange) {
+  return specs.map(([key, label, min, max, step, suffix]) => {
+    const field = range(container, label, min, max, step, settings[key], value => {
+      settings[key] = value;
+      onChange();
+    }, suffix);
+    return { input: field.input, sync: () => field.setValue(settings[key]) };
+  });
 }
 
 function makeField(container, className, label) {
@@ -678,7 +761,12 @@ function numberField(container, label, min, max, step, value, onChange) {
     input.value = previous;
     onChange(previous);
   });
-  return input;
+  return {
+    setValue(next) {
+      previous = next;
+      input.value = next;
+    },
+  };
 }
 
 start().catch(error => {

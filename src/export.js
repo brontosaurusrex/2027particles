@@ -28,7 +28,7 @@ export async function discardDestination(destination) {
 }
 
 export async function renderArchive(view, snapshot, destination, signal, onProgress) {
-  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.chips.length);
+  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices);
   const png = new OffscreenCanvas(WIDTH, HEIGHT);
   const context = png.getContext('2d');
   const writer = (await destination.handle.createWritable()).getWriter();
