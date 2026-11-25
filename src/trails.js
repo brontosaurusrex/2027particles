@@ -30,31 +30,35 @@ export class MotionTrails {
     this.count = 0;
   }
 
-  begin(camera, duration) {
-    this.duration = duration;
-    this.historyStride = Math.max(1, Math.ceil((duration / STEP + 1) / MAX_SEGMENTS));
-    this.mesh.visible = duration > 0;
+  begin(camera, { trail = 0, trailWidth = 100, trailLengthVariation = 0 }) {
+    this.duration = trail / 1000;
+    this.widthScale = trailWidth / 100;
+    this.lengthVariation = trailLengthVariation / 100;
+    this.mesh.visible = this.duration > 0 && this.widthScale > 0;
     this.count = 0;
     if (this.mesh.visible) camera.getWorldDirection(this.view);
   }
 
   add(particle, head, time, scale, opacity, brightness) {
-    const { history, historyNext, historyCount, size, hue: angle = 0 } = particle;
+    const { history, historyNext, historyCount, size, hue: angle = 0, trailLengthJitter = 0 } = particle;
     if (!this.mesh.visible || !historyCount) return;
-    const cutoff = time - this.duration;
+    const duration = this.duration * (1 + this.lengthVariation * trailLengthJitter);
+    if (duration <= 0) return;
+    const cutoff = time - duration;
+    const stride = Math.max(1, Math.ceil((duration / STEP + 1) / MAX_SEGMENTS));
     this.front.copy(head);
     let frontTime = time;
-    const width = size * scale * 0.34;
+    const width = size * scale * 0.34 * this.widthScale;
     for (let segment = 0; segment < MAX_SEGMENTS; segment++) {
-      const index = Math.min(segment * this.historyStride, historyCount - 1);
+      const index = Math.min(segment * stride, historyCount - 1);
       const slot = (historyNext - 1 - index + TRAIL_HISTORY) % TRAIL_HISTORY * 4;
       const sampleTime = history[slot + 3];
       if (sampleTime < frontTime) {
         this.back.fromArray(history, slot);
         const backTime = Math.max(cutoff, sampleTime);
         if (sampleTime < cutoff) this.back.lerp(this.front, (cutoff - sampleTime) / (frontTime - sampleTime));
-        const frontFade = (frontTime - cutoff) / this.duration;
-        const backFade = (backTime - cutoff) / this.duration;
+        const frontFade = (frontTime - cutoff) / duration;
+        const backFade = (backTime - cutoff) / duration;
         this.segment(width, frontFade, backFade, opacity, brightness, angle);
         if (backTime === cutoff) break;
         this.front.copy(this.back);

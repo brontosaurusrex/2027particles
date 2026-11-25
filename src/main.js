@@ -31,7 +31,7 @@ async function start() {
   orbit.maxDistance = 36;
 
   const forces = { gravity: 2.2, wind: [0.35, 0, -0.20], turbulence: 0.90, drag: 1.5, seed: 2027 };
-  const effects = { depth: 1, shutter: 90, focus: 9.6, trail: 110 };
+  const effects = { depth: 1, shutter: 90, focus: 9.6, trail: 110, trailWidth: 100, trailLengthVariation: 0 };
   const demo = createEmitter(1, 'line', [
     [-2.4, -0.36], [-1.7, -0.12], [-1.05, 0.15], [-0.45, 0.22], [0.2, 0.17],
     [0.85, -0.01], [1.6, -0.25], [2.35, -0.54],
@@ -400,6 +400,14 @@ async function start() {
     effects.trail = value;
     dirty = true;
   }, ' ms');
+  range(cameraPanel, 'Trail width', 0, 300, 1, effects.trailWidth, value => {
+    effects.trailWidth = value;
+    dirty = true;
+  }, '%');
+  range(cameraPanel, 'Trail length variation', 0, 100, 1, effects.trailLengthVariation, value => {
+    effects.trailLengthVariation = value;
+    dirty = true;
+  }, '%');
   const focus = range(cameraPanel, 'Focus distance', 0.2, 40, 0.1, effects.focus, value => {
     effects.focus = value;
     dirty = true;

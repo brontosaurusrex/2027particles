@@ -125,11 +125,11 @@ class ParticleRenderer {
     return mesh;
   }
 
-  updateInstances(simulation, time, camera, trailDuration) {
+  updateInstances(simulation, time, camera, effects) {
     const { object, chips, sparks, trails } = this;
     chips.forEach(mesh => { mesh.count = 0; });
     sparks.count = 0;
-    trails.begin(camera, trailDuration);
+    trails.begin(camera, effects);
     simulation.sample(time, (particle, fraction, age) => {
       const { rotation, spin, death, birth } = particle;
       const lifetime = death - birth;
@@ -206,7 +206,6 @@ class ParticleRenderer {
     const focus = Math.max(camera.near * 2, settings.focus);
     const aperture = focus * settings.depth * 0.0014;
     const exposure = STEP * settings.shutter / 360;
-    const trailDuration = (settings.trail ?? 0) / 1000;
     if (!exporting && (renderer.domElement.width !== width || renderer.domElement.height !== height)) {
       renderer.setSize(width, height, false);
     }
@@ -243,7 +242,7 @@ class ParticleRenderer {
       const time = frame * STEP - exposure * fraction;
       const radius = count === 1 ? 0 : Math.sqrt(((index * (count - 1)) % count + 0.5) / count);
       const sampled = this.setLensSample(camera, focus, aperture, radius, index * GOLDEN_ANGLE);
-      this.updateInstances(simulation, time, sampled, trailDuration);
+      this.updateInstances(simulation, time, sampled, settings);
       renderer.autoClear = true;
       renderer.setRenderTarget(samples);
       renderer.render(this.scene, sampled);

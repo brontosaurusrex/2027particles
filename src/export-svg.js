@@ -154,7 +154,7 @@ function vectorTrails(trails, camera) {
 export function renderVectorFrame(view, simulation, frame, camera, effects) {
   camera.updateMatrixWorld(true);
   simulation.seek(frame);
-  view.updateInstances(simulation, frame * STEP, camera, effects.trail / 1000);
+  view.updateInstances(simulation, frame * STEP, camera, effects);
   const trails = vectorTrails(view.trails, camera);
   const chips = vectorParticles(view.chips, camera);
   const glints = vectorParticles([view.sparks], camera, true);

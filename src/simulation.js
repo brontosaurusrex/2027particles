@@ -7,7 +7,7 @@ export const STEP = 1 / FPS;
 export const CAPACITY = 2400;
 export const EMITTER_LIMIT = 32;
 export const MAX_TRAIL_MS = 1200;
-export const TRAIL_HISTORY = Math.ceil(MAX_TRAIL_MS / (1000 * STEP)) + 1;
+export const TRAIL_HISTORY = Math.ceil(2 * MAX_TRAIL_MS / (1000 * STEP)) + 1;
 const TAU = 2 * Math.PI;
 const DEFAULT_ROTATION_SPEED = 180;
 const DEFAULT_ROTATION_VARIATION = 50;
@@ -182,6 +182,7 @@ export class Simulation {
     this.random = randomSource(this.settings.seed);
     this.hueRandom = randomSource(this.settings.seed ^ 0x9e3779b9);
     this.rotationRandom = randomSource(this.settings.seed ^ 0xc2b2ae35);
+    this.trailRandom = randomSource(this.settings.seed ^ 0x85ebca6b);
   }
 
   seek(frame) {
@@ -226,6 +227,7 @@ export class Simulation {
           history: new Float32Array(TRAIL_HISTORY * 4),
           historyNext: 0,
           historyCount: 0,
+          trailLengthJitter: 2 * this.trailRandom() - 1,
           rotation: [TAU * random(), TAU * random(), TAU * random()],
           spin: particleSpin(random, rotationSpeed * (1 + (2 * this.rotationRandom() - 1) * rotationVariation)),
           size: emitter.size * MathUtils.lerp(1, 0.38 + 0.95 * random() ** 2, sizeVariation),
