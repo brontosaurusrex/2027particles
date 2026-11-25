@@ -37,6 +37,7 @@ input[type=range], input[type=checkbox], progress { accent-color: var(--gold); }
 }
 h1 { font-size: 1.16rem; margin: 0 auto 0 0; letter-spacing: .015em; }
 h1 span { color: var(--gold); margin-right: .34rem; }
+.export-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 #backend, .ticks, .time span { color: var(--muted); }
 #backend { font-size: .88rem; }
 main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; height: calc(100dvh - 62px); }
@@ -125,7 +126,7 @@ dialog progress { width: 100%; margin-top: 14px; }
   main { height: auto; grid-template-columns: 1fr; }
   .viewport:not(:fullscreen) { height: clamp(235px, 63vw, 500px); }
   .inspector { border-left: 0; border-top: 1px solid var(--line); }
-  .masthead { padding: 10px 12px; gap: 9px; }
+  .masthead { padding: 10px 12px; gap: 9px; flex-wrap: wrap; }
   .toolbar, .timeline { padding-inline: 8px; }
   #backend { display: none; }
 }

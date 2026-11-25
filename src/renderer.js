@@ -59,7 +59,9 @@ class ParticleRenderer {
     const spark = setLifetimeAppearance(new THREE.MeshBasicNodeMaterial({
       color: 0xffd070, side: THREE.DoubleSide, transparent: true, depthWrite: false, forceSinglePass: true,
     }));
-    this.sparks = this.createBatch(new THREE.ShapeGeometry(star), spark);
+    const sparkleGeometry = new THREE.ShapeGeometry(star);
+    sparkleGeometry.userData.outline = points;
+    this.sparks = this.createBatch(sparkleGeometry, spark);
     this.sparks.renderOrder = 1;
     this.trails = new MotionTrails();
     this.scene.add(this.trails.mesh);

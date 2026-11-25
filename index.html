@@ -12,7 +12,10 @@
   <header class="masthead">
     <h1><span aria-hidden="true">✦</span> 2027 Particles</h1>
     <span id="backend" role="status">Starting renderer…</span>
-    <button id="export" class="primary" type="button" disabled>Export PNG sequence</button>
+    <div class="export-actions">
+      <button id="export-svg" type="button" title="Download the current frame as editable vector graphics" disabled>Export SVG frame</button>
+      <button id="export" class="primary" type="button" disabled>Export PNG sequence</button>
+    </div>
   </header>
   <main>
     <section class="studio" aria-label="Particle editor">

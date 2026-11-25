@@ -7,6 +7,7 @@ import {
   positionOnStroke, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
 import { chooseDestination, discardDestination, renderArchive } from './export.js';
+import { renderVectorFrame } from './export-svg.js';
 import { mountBrightnessEditor } from './brightness-editor.js';
 import { mountEmitterPresets } from './emitter-presets.js';
 
@@ -512,6 +513,25 @@ async function start() {
   const exportStatus = $('export-status');
   const done = $('download');
 
+  $('export-svg').addEventListener('click', () => {
+    if (exporting) return;
+    try {
+      const svg = renderVectorFrame(view, simulation, frame, camera, currentEffects());
+      const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `frame_${String(frame).padStart(4, '0')}.svg`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      $('hint').textContent = 'Could not export this frame as SVG.';
+      console.error(error);
+    } finally {
+      dirty = true;
+    }
+  });
   $('export').addEventListener('click', () => {
     pause();
     dirty = true;
@@ -601,6 +621,7 @@ async function start() {
   status.textContent = view.isWebGL ? 'WebGL 2' : 'WebGPU';
   ready = true;
   $('export').disabled = false;
+  $('export-svg').disabled = false;
   play();
 }
 

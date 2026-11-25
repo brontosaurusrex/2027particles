@@ -1,4 +1,4 @@
-import { ExtrudeGeometry, Shape } from 'three/webgpu';
+import { ExtrudeGeometry, Shape, Vector3 } from 'three/webgpu';
 import { randomSource } from './simulation.js';
 
 const TAU = 2 * Math.PI;
@@ -69,6 +69,11 @@ export function chipGeometries() {
     const geometry = new ExtrudeGeometry(shape, {
       depth: between(0.14, 0.32), bevelEnabled: false, curveSegments: 4,
     });
+    geometry.computeBoundingBox();
+    const center = geometry.boundingBox.getCenter(new Vector3());
+    const contour = shape.getPoints(4);
+    if (contour[0].distanceToSquared(contour.at(-1)) < 1e-12) contour.pop();
+    geometry.userData.outline = contour.map(({ x, y }) => [x - center.x, y - center.y]);
     geometry.center();
     geometries.push(geometry);
   }
