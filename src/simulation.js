@@ -1,4 +1,5 @@
 import { Euler, MathUtils, Quaternion, ShapeUtils, Vector2, Vector3 } from 'three/webgpu';
+import { DEFAULT_BRIGHTNESS } from './lifetime.js';
 
 export const FPS = 50;
 export const FRAME_COUNT = 500;
@@ -20,7 +21,10 @@ export function randomSource(seed) {
 }
 
 export function createEmitter(id, kind, points, position = [0, 0, 0], rotation = [0, 0, 0]) {
-  return { id, kind, points, position, rotation, rate: 115, lifetime: 2.4, size: 0.085, speed: 2.6, drawSpeed: 25 };
+  return {
+    id, kind, points, position, rotation, rate: 115, lifetime: 2.4, size: 0.085,
+    speed: 2.6, speedVariation: 25, drawSpeed: 25, brightness: [...DEFAULT_BRIGHTNESS],
+  };
 }
 
 export function strokeDuration(emitter) {
@@ -159,11 +163,13 @@ export class Simulation {
         const outward = 0.34 + 0.66 * random();
         const velocity = new Vector3(Math.cos(angle) * outward, Math.sin(angle) * outward, 0)
           .addScaledVector(emitter.normal, 0.15 + 0.75 * random())
-          .add(new Vector3(0, 0.66, 0))
-          .multiplyScalar(emitter.speed);
+          .add(new Vector3(0, 0.66, 0));
+        const variation = emitter.speedVariation > 0 ? (2 * random() - 1) * emitter.speedVariation / 100 : 0;
+        velocity.multiplyScalar(emitter.speed * (1 + variation));
         this.particles.push({
           birth,
           death: birth + emitter.lifetime * (0.72 + 0.56 * random()),
+          brightness: emitter.brightness ?? DEFAULT_BRIGHTNESS,
           position,
           previous: position.clone(),
           velocity,

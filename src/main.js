@@ -7,6 +7,7 @@ import {
   positionOnStroke, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
 import { chooseDestination, discardDestination, renderArchive } from './export.js';
+import { mountBrightnessEditor } from './brightness-editor.js';
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
@@ -187,6 +188,23 @@ async function start() {
   $('plane').addEventListener('change', updatePlane);
   $('plane-offset').addEventListener('change', updatePlane);
   $('reset-view').addEventListener('click', resetCamera);
+  const studio = document.querySelector('.studio');
+  const fullscreen = $('fullscreen');
+  fullscreen.disabled = !document.fullscreenEnabled;
+  fullscreen.addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement === studio) await document.exitFullscreen();
+      else await studio.requestFullscreen();
+    } catch {
+      $('hint').textContent = 'Fullscreen is unavailable in this browser window.';
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const active = document.fullscreenElement === studio;
+    fullscreen.setAttribute('aria-pressed', String(active));
+    fullscreen.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+    dirty = true;
+  });
   orbit.addEventListener('change', () => { dirty = true; });
   updatePlane();
   setMode('orbit');
@@ -254,6 +272,12 @@ async function start() {
     updateGuides();
   });
 
+  const brightnessEditor = mountBrightnessEditor($('brightness'), curve => {
+    if (!selected) return;
+    selected.brightness = curve;
+    invalidateSimulation();
+  });
+
   function updateInspector() {
     const menu = $('emitters');
     menu.replaceChildren(...emitters.map(emitter => {
@@ -275,6 +299,11 @@ async function start() {
         invalidateSimulation();
       });
     }
+    const { input: variation } = range(emission, 'Speed variation', 0, 100, 1, selected.speedVariation, value => {
+      selected.speedVariation = value;
+      invalidateSimulation();
+    }, '%');
+    variation.title = 'Random variation above and below the launch speed.';
     if (selected.kind !== 'area') {
       const { input } = range(emission, 'Draw speed', 0, 100, 0.5, selected.drawSpeed, value => {
         selected.drawSpeed = value;
@@ -284,6 +313,7 @@ async function start() {
       input.title = 'Percentage of the stroke revealed per second. Set to 0 for continuous emission along the whole stroke.';
     }
     const transform = $('transform');
+    brightnessEditor.setCurve(selected.brightness);
     transform.replaceChildren();
     for (const [key, label, min, max, step] of [
       ['position', 'Position', -24, 24, 0.1], ['rotation', 'Rotation', -360, 360, 1],

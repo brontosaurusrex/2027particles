@@ -41,6 +41,7 @@ h1 span { color: var(--gold); margin-right: .34rem; }
 #backend { font-size: .88rem; }
 main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; height: calc(100dvh - 62px); }
 .studio { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+.studio:fullscreen { width: 100%; height: 100%; background: #0b0d13; }
 .toolbar, .timeline {
   background: var(--panel);
   display: flex;
@@ -102,6 +103,11 @@ summary { padding: 13px 15px; font-weight: 650; }
 .check { justify-content: start; }
 .transform { border-top: 1px solid var(--line); margin: 8px 0; }
 .transform summary { padding: 9px 0; }
+#brightness canvas { display: block; width: 100%; height: auto; touch-action: none; cursor: ns-resize; }
+.brightness-values { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; margin: 3px 0 9px; }
+.brightness-values label { min-width: 0; color: var(--muted); font-size: .82rem; text-align: center; }
+.brightness-values input { width: 100%; padding: .28rem .15rem; text-align: center; appearance: textfield; }
+.brightness-values input::-webkit-inner-spin-button { appearance: none; }
 #delete-emitter { margin-top: 3px; }
 dialog { width: min(438px, calc(100vw - 32px)); padding: 23px; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
 dialog::backdrop { background: #080911bb; }
@@ -113,6 +119,7 @@ dialog progress { width: 100%; margin-top: 14px; }
 @media (max-width: 740px) {
   main { height: auto; grid-template-columns: 1fr; }
   .viewport { height: clamp(235px, 63vw, 500px); }
+  .studio:fullscreen .viewport { height: auto; }
   .inspector { border-left: 0; border-top: 1px solid var(--line); }
   .masthead { padding: 10px 12px; gap: 9px; }
   .toolbar, .timeline { padding-inline: 8px; }

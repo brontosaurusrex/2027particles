@@ -1,14 +1,22 @@
 import * as THREE from 'three/webgpu';
-import { mix, renderOutput, texture, uniform, uv, vec4 } from 'three/tsl';
+import { attribute, mix, output, renderOutput, texture, uniform, uv, vec4 } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { chipGeometries } from './chips.js';
 import { CAPACITY, STEP } from './simulation.js';
 import { MotionTrails } from './trails.js';
+import { brightnessAt, DEFAULT_BRIGHTNESS } from './lifetime.js';
 
 export const WIDTH = 1920;
 export const HEIGHT = 1080;
 const GOLD = [0xffa320, 0xffc642, 0xffd272, 0xf6a741, 0xffe39b].map(value => new THREE.Color(value));
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
+function setLifetimeAppearance(material) {
+  const appearance = attribute('lifetimeAppearance', 'vec2');
+  material.opacityNode = appearance.x;
+  material.outputNode = vec4(output.rgb.mul(appearance.y), output.a);
+  return material;
+}
 
 export async function createRenderer(stage, forceWebGL) {
   const renderer = new THREE.WebGPURenderer({ alpha: true, forceWebGL, antialias: false });
@@ -36,9 +44,10 @@ class ParticleRenderer {
     rimLight.position.set(5, 1, -4);
     this.scene.add(mainLight, rimLight, new THREE.HemisphereLight(0xffebbc, 0x493320, 1.1));
 
-    const gold = new THREE.MeshStandardMaterial({
+    const gold = setLifetimeAppearance(new THREE.MeshStandardNodeMaterial({
       metalness: 0.80, roughness: 0.22, emissive: 0xe89c32, emissiveIntensity: 0.34,
-    });
+      transparent: true, depthWrite: false,
+    }));
     this.chips = chipGeometries().map(geometry => this.createBatch(geometry, gold));
 
     const star = new THREE.Shape();
@@ -47,8 +56,10 @@ class ParticleRenderer {
     star.moveTo(...points[0]);
     points.slice(1).forEach(point => star.lineTo(...point));
     star.closePath();
-    this.sparks = this.createBatch(new THREE.ShapeGeometry(star),
-      new THREE.MeshBasicMaterial({ color: 0xffd070, side: THREE.DoubleSide }));
+    const spark = setLifetimeAppearance(new THREE.MeshBasicNodeMaterial({
+      color: 0xffd070, side: THREE.DoubleSide, transparent: true, depthWrite: false, forceSinglePass: true,
+    }));
+    this.sparks = this.createBatch(new THREE.ShapeGeometry(star), spark);
     this.sparks.renderOrder = 1;
     this.trails = new MotionTrails();
     this.scene.add(this.trails.mesh);
@@ -99,6 +110,8 @@ class ParticleRenderer {
   }
 
   createBatch(geometry, material) {
+    const appearance = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 2), 2);
+    geometry.setAttribute('lifetimeAppearance', appearance.setUsage(THREE.DynamicDrawUsage));
     const mesh = new THREE.InstancedMesh(geometry, material, CAPACITY);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.setColorAt(0, new THREE.Color(1, 1, 1));
@@ -116,9 +129,13 @@ class ParticleRenderer {
     trails.begin(camera, trailDuration);
     simulation.sample(time, (particle, fraction, age) => {
       const { rotation, spin, death, birth } = particle;
-      const lifeScale = Math.min(1, (death - birth - age) * 7 + 0.12);
+      const lifetime = death - birth;
+      const lifeScale = Math.min(1, (lifetime - age) * 7 + 0.12);
+      const lifeProgress = age / lifetime;
+      const opacity = THREE.MathUtils.smoothstep(1 - lifeProgress, 0, 0.75);
+      const brightness = brightnessAt(particle.brightness ?? DEFAULT_BRIGHTNESS, lifeProgress);
       object.position.lerpVectors(particle.previous, particle.position, fraction);
-      trails.add(particle, object.position, time, lifeScale);
+      trails.add(particle, object.position, time, lifeScale, opacity, brightness);
       object.rotation.set(rotation[0] + spin[0] * age, rotation[1] + spin[1] * age, rotation[2] + spin[2] * age);
       object.scale.setScalar(particle.size * lifeScale);
       object.updateMatrix();
@@ -126,6 +143,7 @@ class ParticleRenderer {
       const index = mesh.count++;
       mesh.setMatrixAt(index, object.matrix);
       mesh.setColorAt(index, GOLD[particle.shade]);
+      mesh.geometry.attributes.lifetimeAppearance.setXY(index, opacity, brightness);
 
       const pulse = Math.max(0, Math.sin(particle.phase + age * particle.flashRate));
       if (particle.glint && pulse > 0.79) {
@@ -142,6 +160,7 @@ class ParticleRenderer {
         this.sparkColor ??= new THREE.Color();
         this.sparkColor.setRGB(6 * pulse, 3.25 * pulse, 1.15 * pulse);
         sparks.setColorAt(sparkle, this.sparkColor);
+        sparks.geometry.attributes.lifetimeAppearance.setXY(sparkle, opacity, brightness);
       }
     });
     trails.finish();
@@ -151,6 +170,9 @@ class ParticleRenderer {
       batch.instanceMatrix.needsUpdate = true;
       batch.instanceColor.addUpdateRange(0, batch.count * 3);
       batch.instanceColor.needsUpdate = true;
+      const appearance = batch.geometry.attributes.lifetimeAppearance;
+      appearance.addUpdateRange(0, batch.count * 2);
+      appearance.needsUpdate = true;
     }
   }
 

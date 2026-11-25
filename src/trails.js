@@ -8,17 +8,19 @@ export class MotionTrails {
   constructor() {
     const capacity = CAPACITY * TRAIL_HISTORY * 6;
     this.positions = new BufferAttribute(new Float32Array(capacity * 3), 3).setUsage(DynamicDrawUsage);
-    this.opacities = new BufferAttribute(new Float32Array(capacity), 1).setUsage(DynamicDrawUsage);
+    this.appearance = new BufferAttribute(new Float32Array(capacity * 2), 2).setUsage(DynamicDrawUsage);
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', this.positions);
-    geometry.setAttribute('trailOpacity', this.opacities);
+    geometry.setAttribute('trailAppearance', this.appearance);
     const material = new MeshBasicNodeMaterial({
       transparent: true, depthWrite: false, side: DoubleSide, forceSinglePass: true,
     });
-    material.opacityNode = attribute('trailOpacity', 'float');
-    material.colorNode = uniform(new Color(0xffb62e).multiplyScalar(2.1));
+    const appearance = attribute('trailAppearance', 'vec2');
+    material.opacityNode = appearance.x;
+    material.colorNode = uniform(new Color(0xffb62e).multiplyScalar(2.1)).mul(appearance.y);
     this.mesh = new Mesh(geometry, material);
     this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = -1;
     this.view = new Vector3();
     this.front = new Vector3();
     this.back = new Vector3();
@@ -33,7 +35,7 @@ export class MotionTrails {
     if (this.mesh.visible) camera.getWorldDirection(this.view);
   }
 
-  add(particle, head, time, scale) {
+  add(particle, head, time, scale, opacity, brightness) {
     const { history, historyNext, historyCount, size } = particle;
     if (!this.mesh.visible || !historyCount) return;
     const cutoff = time - this.duration;
@@ -49,34 +51,34 @@ export class MotionTrails {
       if (sampleTime < cutoff) this.back.lerp(this.front, (cutoff - sampleTime) / (frontTime - sampleTime));
       const frontFade = (frontTime - cutoff) / this.duration;
       const backFade = (backTime - cutoff) / this.duration;
-      this.segment(width, frontFade, backFade);
+      this.segment(width, frontFade, backFade, opacity, brightness);
       if (backTime === cutoff) break;
       this.front.copy(this.back);
       frontTime = backTime;
     }
   }
 
-  segment(width, frontFade, backFade) {
+  segment(width, frontFade, backFade, opacity, brightness) {
     const { view, front, back, side } = this;
     side.subVectors(front, back).cross(view);
     if (side.lengthSq() < 0.0000001) return;
     side.normalize();
     const frontWidth = width * frontFade;
     const backWidth = width * backFade;
-    const frontAlpha = frontFade ** 1.8 * 0.68;
-    const backAlpha = backFade ** 1.8 * 0.68;
-    this.vertex(front, frontWidth, frontAlpha);
-    this.vertex(front, -frontWidth, frontAlpha);
-    this.vertex(back, backWidth, backAlpha);
-    this.vertex(back, backWidth, backAlpha);
-    this.vertex(front, -frontWidth, frontAlpha);
-    this.vertex(back, -backWidth, backAlpha);
+    const frontAlpha = frontFade ** 1.8 * 0.68 * opacity;
+    const backAlpha = backFade ** 1.8 * 0.68 * opacity;
+    this.vertex(front, frontWidth, frontAlpha, brightness);
+    this.vertex(front, -frontWidth, frontAlpha, brightness);
+    this.vertex(back, backWidth, backAlpha, brightness);
+    this.vertex(back, backWidth, backAlpha, brightness);
+    this.vertex(front, -frontWidth, frontAlpha, brightness);
+    this.vertex(back, -backWidth, backAlpha, brightness);
   }
 
-  vertex(point, width, opacity) {
+  vertex(point, width, opacity, brightness) {
     const index = this.count++;
     this.positions.setXYZ(index, point.x + this.side.x * width, point.y + this.side.y * width, point.z + this.side.z * width);
-    this.opacities.setX(index, opacity);
+    this.appearance.setXY(index, opacity, brightness);
   }
 
   finish() {
@@ -84,7 +86,7 @@ export class MotionTrails {
     if (!this.count) return;
     this.positions.addUpdateRange(0, this.count * 3);
     this.positions.needsUpdate = true;
-    this.opacities.addUpdateRange(0, this.count);
-    this.opacities.needsUpdate = true;
+    this.appearance.addUpdateRange(0, this.count * 2);
+    this.appearance.needsUpdate = true;
   }
 }
