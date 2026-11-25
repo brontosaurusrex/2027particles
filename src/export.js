@@ -1,8 +1,12 @@
 import { BlobReader, ZipWriter } from '@zip.js/zip.js';
-import { FRAME_COUNT, Simulation } from './simulation.js';
+import { FPS, FRAME_COUNT, Simulation } from './simulation.js';
 import { WIDTH, HEIGHT } from './renderer.js';
 
 export const ARCHIVE_NAME = '2027particles.zip';
+
+export function sequenceFrameCount(frameRate) {
+  return FRAME_COUNT * frameRate / FPS;
+}
 
 export async function chooseDestination() {
   if (typeof window.showSaveFilePicker === 'function') {
@@ -29,6 +33,9 @@ export async function discardDestination(destination) {
 
 export async function renderArchive(view, snapshot, destination, signal, onProgress) {
   const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices);
+  const frameCount = sequenceFrameCount(snapshot.frameRate);
+  const stride = FPS / snapshot.frameRate;
+  const sampleCount = snapshot.effects.depth > 0 ? 24 : 16;
   const png = new OffscreenCanvas(WIDTH, HEIGHT);
   const context = png.getContext('2d');
   const writer = (await destination.handle.createWritable()).getWriter();
@@ -40,10 +47,10 @@ export async function renderArchive(view, snapshot, destination, signal, onProgr
   const zip = new ZipWriter(stream);
 
   try {
-    for (let frame = 1; frame <= FRAME_COUNT; frame++) {
+    for (let frame = 1; frame <= frameCount; frame++) {
       signal.throwIfAborted();
-      view.draw(simulation, frame, snapshot.camera, snapshot.effects, WIDTH, HEIGHT, {
-        exporting: true, sampleCount: 16, winter: snapshot.winter,
+      view.draw(simulation, 1 + (frame - 1) * stride, snapshot.camera, snapshot.effects, WIDTH, HEIGHT, {
+        exporting: true, sampleCount, winter: snapshot.winter,
       });
       const image = await view.readImage();
       signal.throwIfAborted();

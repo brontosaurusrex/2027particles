@@ -6,7 +6,7 @@ import {
   EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_TRAIL_MS, STEP, Simulation, createEmitter, emitterRotation, polygonFaces,
   positionOnStroke, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
-import { chooseDestination, discardDestination, renderArchive } from './export.js';
+import { chooseDestination, discardDestination, renderArchive, sequenceFrameCount } from './export.js';
 import { renderVectorFrame } from './export-svg.js';
 import { mountBrightnessEditor } from './brightness-editor.js';
 import { mountProjectSlots } from './project-slots.js';
@@ -462,18 +462,39 @@ async function start() {
   });
 
   const profiles = [[1, 4], [0.76, 4], [0.58, 4], [0.45, 3], [0.39, 2]];
+  const previewQuality = $('preview-quality');
+  const frameRate = $('frame-rate');
+  const previewResolution = $('preview-resolution');
   let quality = 0;
   let qualityFrames = 0;
+  let smoothWindows = 0;
   let elapsed = 0;
   let lastDraw = 0;
   let lastWidth = 0;
+  function resetQuality() {
+    quality = qualityFrames = smoothWindows = elapsed = lastDraw = 0;
+    dirty = true;
+  }
+  previewQuality.addEventListener('change', resetQuality);
+  function syncFrameRate() {
+    const rate = Number(frameRate.value);
+    $('timeline-rate').textContent = `${rate} fps`;
+    $('export-summary').textContent = `${sequenceFrameCount(rate)} frames · ${WIDTH} × ${HEIGHT} · ${rate} fps`;
+    resetQuality();
+  }
+  frameRate.addEventListener('change', () => {
+    syncFrameRate();
+    if (playing) play(false);
+  });
   const sizeWatcher = new ResizeObserver(() => { dirty = true; });
   sizeWatcher.observe(stage);
 
   renderer.setAnimationLoop(now => {
     if (!ready || exporting) return;
+    const rate = Number(frameRate.value);
     if (playing) {
-      let next = playFrame + Math.floor(Math.max(0, now - playStart) * FPS / 1000);
+      const previewSteps = Math.floor(Math.max(0, now - playStart) * rate / 1000);
+      let next = playFrame + previewSteps * (FPS / rate);
       if (next > FRAME_COUNT && loop.checked) {
         const completedFrames = Math.floor((next - 1) / FRAME_COUNT) * FRAME_COUNT;
         playStart += (completedFrames - playFrame + 1) * 1000 / FPS;
@@ -484,10 +505,13 @@ async function start() {
       if (next > FRAME_COUNT) pause();
     }
     if (!dirty) return;
-    const [scale, sampleCount] = playing ? profiles[quality] : profiles[0];
+    const full = previewQuality.value === 'full';
+    const adaptive = playing && !full;
+    const [scale, sampleCount] = profiles[adaptive ? quality : 0];
     const previewSamples = effects.depth >= 2.5 ? (playing ? sampleCount * 2 : 16) : sampleCount;
-    const maxWidth = previewFullscreen ? WIDTH : 1440;
-    const width = Math.max(128, Math.round(Math.min(stage.clientWidth * Math.min(devicePixelRatio, 1.5), maxWidth) * scale));
+    const maxWidth = full ? WIDTH * 2 : WIDTH;
+    const pixelRatio = full ? devicePixelRatio : Math.min(devicePixelRatio, 1.5);
+    const width = Math.max(128, Math.round(Math.min(stage.clientWidth * pixelRatio, maxWidth) * scale));
     const height = Math.round(width * HEIGHT / WIDTH);
     dirty = false;
     const showGuides = mode !== 'orbit' && !previewFullscreen;
@@ -495,16 +519,25 @@ async function start() {
     view.draw(simulation, frame, camera, effects, width, height, {
       exporting: false, sampleCount: previewSamples, winter, overlay: showGuides ? guides : null,
     });
-    if (playing && lastDraw > 0 && width === lastWidth) {
+    if (width !== lastWidth) {
+      previewResolution.textContent = `${width} × ${height}`;
+      qualityFrames = elapsed = 0;
+    } else if (adaptive && lastDraw > 0) {
       elapsed += now - lastDraw;
       if (++qualityFrames >= 24) {
         const average = elapsed / qualityFrames;
-        if (average > 25 && quality < profiles.length - 1) quality++;
+        const interval = 1000 / rate;
+        if (average > interval * 1.25 && quality < profiles.length - 1) quality++;
+        smoothWindows = average <= interval * 1.1 ? smoothWindows + 1 : 0;
+        if (smoothWindows >= 3) {
+          quality = Math.max(0, quality - 1);
+          smoothWindows = 0;
+        }
         qualityFrames = 0;
         elapsed = 0;
       }
     }
-    lastDraw = playing ? now : 0;
+    lastDraw = adaptive ? now : 0;
     lastWidth = width;
   });
 
@@ -523,7 +556,10 @@ async function start() {
       camera: {
         position: camera.position.toArray(), target: orbit.target.toArray(), focalLength, winter,
       },
-      editor: { mode, plane: $('plane').value, planeOffset: Number($('plane-offset').value) },
+      editor: {
+        mode, plane: $('plane').value, planeOffset: Number($('plane-offset').value),
+        previewQuality: previewQuality.value, frameRate: Number(frameRate.value),
+      },
       playback: { frame, playing, loop: loop.checked },
       exportBackground: exportBackground.value,
     };
@@ -579,6 +615,9 @@ async function start() {
     nextId = project.nextEmitterId;
     $('plane').value = project.editor.plane;
     $('plane-offset').value = project.editor.planeOffset;
+    previewQuality.value = project.editor.previewQuality;
+    frameRate.value = String(project.editor.frameRate);
+    syncFrameRate();
     setMode(project.editor.mode);
     updatePlane();
     updateInspector();
@@ -628,11 +667,14 @@ async function start() {
     if (exporting) return;
     exporting = new AbortController();
     const signal = exporting.signal;
+    const rate = Number(frameRate.value);
+    const frameCount = sequenceFrameCount(rate);
     $('start-export').disabled = true;
     $('close-export').textContent = 'Cancel';
     $('export-background').disabled = true;
     done.hidden = true;
     progress.value = 0;
+    progress.max = frameCount;
     progress.hidden = true;
     exportStatus.hidden = true;
     let destination;
@@ -647,9 +689,10 @@ async function start() {
       signal.throwIfAborted();
       progress.hidden = false;
       exportStatus.hidden = false;
-      exportStatus.textContent = 'Rendering frame 1 of 500…';
+      exportStatus.textContent = `Rendering frame 1 of ${frameCount}…`;
       const snapshot = {
         camera: camera.clone(),
+        frameRate: rate,
         effects: { ...effects },
         forces: structuredClone(forces),
         emitters: structuredClone(emitters),
@@ -657,7 +700,7 @@ async function start() {
       };
       const file = await renderArchive(view, snapshot, destination, signal, rendered => {
         progress.value = rendered;
-        exportStatus.textContent = `Rendered ${rendered} of ${FRAME_COUNT} frames`;
+        exportStatus.textContent = `Rendered ${rendered} of ${frameCount} frames`;
       });
       if (file) {
         downloadDestination = destination;

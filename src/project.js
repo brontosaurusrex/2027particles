@@ -1,5 +1,5 @@
 import { DEFAULT_BRIGHTNESS } from './lifetime.js';
-import { EMITTER_LIMIT, FRAME_COUNT, MAX_TRAIL_MS, emitterSettings, validateStroke } from './simulation.js';
+import { EMITTER_LIMIT, FPS, FRAME_COUNT, MAX_TRAIL_MS, emitterSettings, validateStroke } from './simulation.js';
 
 const FORMAT = '2027-particles';
 const VERSION = 1;
@@ -133,6 +133,8 @@ export function decodeProject(contents) {
       mode: choice(editor.mode, ['orbit', 'line', 'outline', 'area'], 'drawing mode'),
       plane: choice(editor.plane, ['xy', 'xz', 'yz'], 'drawing plane'),
       planeOffset: number(editor.planeOffset, -12, 12, 'drawing plane offset'),
+      previewQuality: choice(editor.previewQuality ?? 'auto', ['auto', 'full'], 'preview quality'),
+      frameRate: choice(editor.frameRate ?? FPS, [25, FPS], 'frame rate'),
     },
     playback: {
       frame: integer(playback.frame, 1, FRAME_COUNT, 'frame'),

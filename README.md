@@ -15,6 +15,8 @@ Save project downloads a JSON file with the emitters, camera, forces, trail and 
 
 Use Fullscreen for a clean animation preview. Drag to orbit or scroll to zoom. Press Space to play or pause and Escape to return to the editor.
 
+Under Preview, choose Auto to adapt resolution during playback or Full resolution to use native display pixels up to 3840 × 2160. Frame rate controls playback and PNG export. Both rates play the same ten-second timeline. Export produces 250 frames at 25 fps or 500 frames at 50 fps.
+
 Each emitter has its own launch Speed variation and Lifetime brightness curve. Drag the curve points or enter brightness percentages at the five ages. Particles become more transparent near the end of their lives.
 
 Every emitter uses a mix of ♥ hearts, ★ stars, ❄ snowflakes, ● solid circles, ✚ plus signs, ✦ sparkles, ✿ flowers, ⚡ lightning bolts, and ○ rings. Solid circles appear twice as often as each other shape.
@@ -37,7 +39,7 @@ Increase Air drag under Forces to slow particles throughout their flight and kee
 
 The 25–200 mm full-frame focal length control moves the camera along its viewing axis to keep the orbit target at the same apparent size. Focus distance sets the sharp plane independently of the camera position. Use Depth of field to soften the particles in front of and behind that plane.
 
-A 90° shutter gives a 5 ms exposure at 50 fps. Trail length controls how far back along each particle's motion the gold trail extends, up to 1.2 seconds. Export uses the current camera and creates a ZIP with 500 consecutively numbered 1920 × 1080 PNGs. Choose transparent frames or include the winter backdrop. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.
+A 90° shutter gives a 5 ms exposure. Trail length controls how far back along each particle's motion the gold trail extends, up to 1.2 seconds. Export uses the current camera and creates a ZIP with consecutively numbered 1920 × 1080 PNGs. It uses 24 samples per frame when depth of field is enabled. Choose transparent frames or include the winter backdrop. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.
 
 Trail width scales ribbon thickness from 0% to 300%. Trail length variation gives individual particles shorter and longer trails around the selected length. At 100% variation, a trail can last up to twice that length.
 

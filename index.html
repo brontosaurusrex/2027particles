@@ -46,7 +46,7 @@
         <div id="stage" class="stage" aria-label="3D viewport">
           <div class="frame-guide" aria-hidden="true"></div>
         </div>
-        <span class="viewport-label">1920 × 1080</span>
+        <span class="viewport-label" id="preview-resolution" title="Preview render resolution"></span>
         <p id="hint" class="hint" role="status">Drag to orbit · Scroll to zoom · Right-drag to pan</p>
       </div>
       <div class="timeline">
@@ -61,7 +61,7 @@
           <input id="timeline" type="range" min="1" max="500" value="1" aria-label="Timeline frame">
           <div class="ticks"><span>0s</span><span>2s</span><span>4s</span><span>6s</span><span>8s</span><span>10s</span></div>
         </div>
-        <div class="time"><output id="frame" for="timeline">001</output> / 500 <span>50 fps</span></div>
+        <div class="time"><output id="frame" for="timeline">001</output> / 500 <span id="timeline-rate">50 fps</span></div>
       </div>
     </section>
     <aside class="inspector" aria-label="Scene controls">
@@ -93,6 +93,23 @@
           <label class="check"><input type="checkbox" id="winter"> Show winter backdrop</label>
         </div>
       </details>
+      <details open>
+        <summary>Preview</summary>
+        <div class="section-body">
+          <label class="select-row">Preview quality
+            <select id="preview-quality" aria-label="Preview quality">
+              <option value="auto">Auto</option>
+              <option value="full">Full resolution</option>
+            </select>
+          </label>
+          <label class="select-row">Frame rate
+            <select id="frame-rate" aria-label="Frame rate" title="Playback and PNG export frame rate">
+              <option value="50">50 fps</option>
+              <option value="25">25 fps</option>
+            </select>
+          </label>
+        </div>
+      </details>
     </aside>
   </main>
   <dialog id="slots-dialog" aria-labelledby="slots-title">
@@ -110,7 +127,7 @@
   <dialog id="export-dialog" aria-labelledby="export-title">
     <form id="export-form">
       <h2 id="export-title">Export PNG sequence</h2>
-      <p>500 frames · 1920 × 1080 · 50 fps</p>
+      <p id="export-summary">500 frames · 1920 × 1080 · 50 fps</p>
       <label class="select-row">Background
         <select id="export-background">
           <option value="transparent">Transparent</option>
