@@ -6,7 +6,7 @@ export const FRAME_COUNT = 500;
 export const STEP = 1 / FPS;
 export const CAPACITY = 2400;
 export const EMITTER_LIMIT = 32;
-export const MAX_TRAIL_MS = 200;
+export const MAX_TRAIL_MS = 1200;
 export const TRAIL_HISTORY = Math.ceil(MAX_TRAIL_MS / (1000 * STEP)) + 1;
 const TAU = 2 * Math.PI;
 
@@ -22,7 +22,7 @@ export function randomSource(seed) {
 
 export function createEmitter(id, kind, points, position = [0, 0, 0], rotation = [0, 0, 0]) {
   return {
-    id, kind, points, position, rotation, rate: 115, lifetime: 2.4, size: 0.085,
+    id, kind, points, position, rotation, rate: 115, lifetime: 2.4, size: 0.085, sizeVariation: 100,
     speed: 2.6, speedVariation: 25, drawSpeed: 25, brightness: [...DEFAULT_BRIGHTNESS],
   };
 }
@@ -153,6 +153,7 @@ export class Simulation {
     for (const emitter of this.emitters) {
       const { drawDuration } = emitter;
       if (start >= drawDuration) continue;
+      const sizeVariation = (emitter.sizeVariation ?? 100) / 100;
       const first = Math.floor(start * emitter.rate + 1e-8) + 1;
       const last = Math.floor(Math.min(end, drawDuration) * emitter.rate + 1e-8);
       for (let i = first; i <= last && this.particles.length < CAPACITY; i++) {
@@ -178,7 +179,7 @@ export class Simulation {
           historyCount: 0,
           rotation: [TAU * random(), TAU * random(), TAU * random()],
           spin: [(random() - 0.5) * 12, (random() - 0.5) * 12, (random() - 0.5) * 12],
-          size: emitter.size * (0.38 + 0.95 * random() ** 2),
+          size: emitter.size * MathUtils.lerp(1, 0.38 + 0.95 * random() ** 2, sizeVariation),
           phase: random() * TAU,
           flashRate: 6 + 14 * random(),
           glint: random() < 0.46,

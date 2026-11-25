@@ -290,14 +290,15 @@ async function start() {
     if (!selected) return;
     const emission = $('emission');
     emission.replaceChildren();
-    for (const [label, key, min, max, step] of [
+    for (const [label, key, min, max, step, suffix] of [
       ['Rate / sec', 'rate', 0, 400, 1], ['Lifetime (s)', 'lifetime', 0.1, 8, 0.1],
-      ['Chip size', 'size', 0.02, 0.3, 0.005], ['Launch speed', 'speed', 0, 10, 0.1],
+      ['Chip size', 'size', 0.02, 0.3, 0.005], ['Size variation', 'sizeVariation', 0, 150, 1, '%'],
+      ['Launch speed', 'speed', 0, 10, 0.1],
     ]) {
       range(emission, label, min, max, step, selected[key], value => {
         selected[key] = value;
         invalidateSimulation();
-      });
+      }, suffix);
     }
     const { input: variation } = range(emission, 'Speed variation', 0, 100, 1, selected.speedVariation, value => {
       selected.speedVariation = value;

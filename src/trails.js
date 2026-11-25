@@ -2,11 +2,13 @@ import {
   BufferAttribute, BufferGeometry, Color, DoubleSide, DynamicDrawUsage, Mesh, MeshBasicNodeMaterial, Vector3,
 } from 'three/webgpu';
 import { attribute, uniform } from 'three/tsl';
-import { CAPACITY, TRAIL_HISTORY } from './simulation.js';
+import { CAPACITY, STEP, TRAIL_HISTORY } from './simulation.js';
+
+const MAX_SEGMENTS = 24;
 
 export class MotionTrails {
   constructor() {
-    const capacity = CAPACITY * TRAIL_HISTORY * 6;
+    const capacity = CAPACITY * MAX_SEGMENTS * 6;
     this.positions = new BufferAttribute(new Float32Array(capacity * 3), 3).setUsage(DynamicDrawUsage);
     this.appearance = new BufferAttribute(new Float32Array(capacity * 2), 2).setUsage(DynamicDrawUsage);
     const geometry = new BufferGeometry();
@@ -30,6 +32,7 @@ export class MotionTrails {
 
   begin(camera, duration) {
     this.duration = duration;
+    this.historyStride = Math.max(1, Math.ceil((duration / STEP + 1) / MAX_SEGMENTS));
     this.mesh.visible = duration > 0;
     this.count = 0;
     if (this.mesh.visible) camera.getWorldDirection(this.view);
@@ -42,19 +45,22 @@ export class MotionTrails {
     this.front.copy(head);
     let frontTime = time;
     const width = size * scale * 0.34;
-    for (let index = 0; index < historyCount; index++) {
+    for (let segment = 0; segment < MAX_SEGMENTS; segment++) {
+      const index = Math.min(segment * this.historyStride, historyCount - 1);
       const slot = (historyNext - 1 - index + TRAIL_HISTORY) % TRAIL_HISTORY * 4;
       const sampleTime = history[slot + 3];
-      if (sampleTime >= frontTime) continue;
-      this.back.fromArray(history, slot);
-      const backTime = Math.max(cutoff, sampleTime);
-      if (sampleTime < cutoff) this.back.lerp(this.front, (cutoff - sampleTime) / (frontTime - sampleTime));
-      const frontFade = (frontTime - cutoff) / this.duration;
-      const backFade = (backTime - cutoff) / this.duration;
-      this.segment(width, frontFade, backFade, opacity, brightness);
-      if (backTime === cutoff) break;
-      this.front.copy(this.back);
-      frontTime = backTime;
+      if (sampleTime < frontTime) {
+        this.back.fromArray(history, slot);
+        const backTime = Math.max(cutoff, sampleTime);
+        if (sampleTime < cutoff) this.back.lerp(this.front, (cutoff - sampleTime) / (frontTime - sampleTime));
+        const frontFade = (frontTime - cutoff) / this.duration;
+        const backFade = (backTime - cutoff) / this.duration;
+        this.segment(width, frontFade, backFade, opacity, brightness);
+        if (backTime === cutoff) break;
+        this.front.copy(this.back);
+        frontTime = backTime;
+      }
+      if (index === historyCount - 1) break;
     }
   }
 
