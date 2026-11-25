@@ -37,6 +37,7 @@ class ParticleRenderer {
     this.camera = new THREE.PerspectiveCamera(43, WIDTH / HEIGHT, 0.08, 120);
     this.sampleCamera = this.camera.clone();
     this.object = new THREE.Object3D();
+    this.spinAxis = new THREE.Vector3();
 
     const mainLight = new THREE.DirectionalLight(0xffe1a7, 3.6);
     mainLight.position.set(-4, 6, 4);
@@ -139,7 +140,10 @@ class ParticleRenderer {
       const angle = particle.hue ?? 0;
       object.position.lerpVectors(particle.previous, particle.position, fraction);
       trails.add(particle, object.position, time, lifeScale, opacity, brightness);
-      object.rotation.set(rotation[0] + spin[0] * age, rotation[1] + spin[1] * age, rotation[2] + spin[2] * age);
+      object.rotation.set(...rotation);
+      this.spinAxis.fromArray(spin);
+      const spinSpeed = this.spinAxis.length();
+      if (spinSpeed > 0) object.rotateOnAxis(this.spinAxis.divideScalar(spinSpeed), spinSpeed * age);
       object.scale.setScalar(particle.size * lifeScale);
       object.updateMatrix();
       const mesh = chips[particle.shape];

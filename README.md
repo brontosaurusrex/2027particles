@@ -15,6 +15,10 @@ Use Fullscreen for a clean animation preview. Press Space to play or pause and E
 
 Each emitter has its own launch Speed variation and Lifetime brightness curve. Drag the curve points or enter brightness percentages at the five ages. Particles become more transparent near the end of their lives.
 
+Every emitter uses a mix of ♥ hearts, ★ stars, ❄ snowflakes, ● solid circles, ✚ plus signs, ✦ sparkles, ◆ diamonds, ✿ flowers, ⚡ lightning bolts, and ○ rings.
+
+Rotation speed sets the tumble rate in degrees per second. Rotation variation spreads that rate above and below the selected speed. Set speed to 0°/s to hold each particle's starting orientation.
+
 Size variation controls the spread around the selected emitter's Chip size. Set it to 0% for equal-sized chips, 100% for the default mix, or up to 150% for a wider mix.
 
 Hue variation gives each particle from the selected emitter a consistent random color shift. At 0° the palette stays gold. Wider ranges add more colors in the preview, PNG frames, and SVG.
@@ -29,4 +33,6 @@ Increase Air drag under Forces to slow particles throughout their flight and kee
 
 Camera controls adjust depth of field, focus distance, shutter angle, and trail length. Uncheck Focus on orbit target to set the distance manually with the slider. A 90° shutter gives a 5 ms exposure at 50 fps. Trail length controls how far back along each particle's motion the gold trail extends, up to 1.2 seconds. Export uses the current camera and creates a ZIP with 500 consecutively numbered 1920 × 1080 PNGs. Choose transparent frames or include the winter backdrop. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.
 
-Particle contours are adapted from Physical's mixed brick debris. The winter environment is [Snowy Field by Andreas Mischok](https://polyhaven.com/a/snowy_field), distributed under CC0.
+Particle contours come from [Noto Sans Symbols 2](https://github.com/google/fonts/tree/7b6724ac7ececc713e9ba93af309f7520c9a80a3/ofl/notosanssymbols2) under the [SIL Open Font License](public/licenses/NotoSansSymbols2-OFL.txt). To regenerate them from the source TTF, run `uv run --no-project --with fonttools python scripts/extract-particle-glyphs.py NotoSansSymbols2-Regular.ttf > src/particle-glyphs.json`.
+
+The winter environment is [Snowy Field by Andreas Mischok](https://polyhaven.com/a/snowy_field), distributed under CC0.

@@ -308,6 +308,8 @@ async function start() {
       ['Chip size', 'size', 0.02, 0.3, 0.005], ['Size variation', 'sizeVariation', 0, 150, 1, '%'],
       ['Launch speed', 'speed', 0, 10, 0.1],
       ['Hue variation', 'hueVariation', 0, 180, 1, '°'],
+      ['Rotation speed', 'rotationSpeed', 0, 360, 1, '°/s'],
+      ['Rotation variation', 'rotationVariation', 0, 100, 1, '%'],
     ]) {
       range(emission, label, min, max, step, selected[key], value => {
         selected[key] = value;

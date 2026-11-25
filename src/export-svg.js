@@ -54,7 +54,7 @@ function projectPolygon(points, camera) {
   return projected;
 }
 
-function chipFaces(outline, halfDepth, objectToWorld, objectToView, camera, color, brightness) {
+function chipFaces(faces, halfDepth, objectToWorld, objectToView, camera, color, brightness) {
   const cameraLocal = new Vector3().setFromMatrixPosition(camera.matrixWorld)
     .applyMatrix4(objectToWorld.clone().invert());
   const shade = normal => {
@@ -62,27 +62,33 @@ function chipFaces(outline, halfDepth, objectToWorld, objectToView, camera, colo
     const lighting = 0.53 + 0.68 * Math.max(0, normal.dot(keyLight)) + 0.31 * Math.max(0, normal.dot(rimLight));
     return color.clone().multiplyScalar(brightness * lighting).getHexString();
   };
-  const projectFace = (points, normal) => {
+  const projectFace = points => {
     const face = projectPolygon(points.map(point => new Vector3(...point).applyMatrix4(objectToView)), camera);
-    return face ? `<path fill="#${shade(normal)}" d="${pathData(face)}"/>` : '';
+    return face ? pathData(face) : '';
   };
-  const winding = Math.sign(outline.reduce((sum, [x, y], index) => {
-    const [nextX, nextY] = outline[(index + 1) % outline.length];
-    return sum + x * nextY - nextX * y;
-  }, 0));
-  const faces = [];
-  outline.forEach(([x, y], index) => {
-    const [nextX, nextY] = outline[(index + 1) % outline.length];
-    const normal = new Vector3((nextY - y) * winding, (x - nextX) * winding, 0);
-    if (normal.x * (cameraLocal.x - x) + normal.y * (cameraLocal.y - y) <= 0) return;
-    faces.push(projectFace([[x, y, -halfDepth], [nextX, nextY, -halfDepth],
-      [nextX, nextY, halfDepth], [x, y, halfDepth]], normal));
-  });
-  if (Math.abs(cameraLocal.z) > halfDepth) {
+  const paths = [];
+  for (const contours of faces) {
+    for (const contour of contours) {
+      contour.forEach(([x, y], index) => {
+        const [nextX, nextY] = contour[(index + 1) % contour.length];
+        // Outer loops are counterclockwise and holes are clockwise.
+        const normal = new Vector3(nextY - y, x - nextX, 0);
+        if (normal.x * (cameraLocal.x - x) + normal.y * (cameraLocal.y - y) <= 0) return;
+        const path = projectFace([[x, y, -halfDepth], [nextX, nextY, -halfDepth],
+          [nextX, nextY, halfDepth], [x, y, halfDepth]]);
+        if (path) paths.push(`<path fill="#${shade(normal)}" d="${path}"/>`);
+      });
+    }
+    if (Math.abs(cameraLocal.z) <= halfDepth) continue;
     const side = Math.sign(cameraLocal.z);
-    faces.push(projectFace(outline.map(([x, y]) => [x, y, side * halfDepth]), new Vector3(0, 0, side)));
+    const [outer, ...holes] = contours.map(contour =>
+      projectFace(contour.map(([x, y]) => [x, y, side * halfDepth])));
+    if (outer) {
+      const fill = shade(new Vector3(0, 0, side));
+      paths.push(`<path fill="#${fill}" fill-rule="evenodd" d="${outer}${holes.join('')}"/>`);
+    }
   }
-  return faces.join('');
+  return paths.join('');
 }
 
 function vectorParticles(batches, camera, glints = false) {
@@ -91,7 +97,7 @@ function vectorParticles(batches, camera, glints = false) {
   const view = new Matrix4();
   const color = new Color();
   for (const batch of batches) {
-    const outline = batch.geometry.userData.outline;
+    const { outline, faces, symbol } = batch.geometry.userData;
     const halfDepth = glints ? 0 : batch.geometry.parameters.options.depth / 2;
     const appearance = batch.geometry.attributes.lifetimeAppearance;
     for (let index = 0; index < batch.count; index++) {
@@ -109,9 +115,10 @@ function vectorParticles(batches, camera, glints = false) {
         const fill = rotateHue(color.multiply(glintGold), angle).multiplyScalar(brightness * 0.65).getHexString();
         contents = `<path fill="#${fill}" d="${pathData(shape)}"/>`;
       } else {
-        contents = chipFaces(outline, halfDepth, world, view, camera, rotateHue(color, angle), brightness);
+        contents = chipFaces(faces, halfDepth, world, view, camera, rotateHue(color, angle), brightness);
       }
-      if (contents) groups.push({ z: view.elements[14], svg: `<g opacity="${alpha(opacity)}">${contents}</g>` });
+      const shape = symbol ? ` data-shape="${symbol}"` : '';
+      if (contents) groups.push({ z: view.elements[14], svg: `<g${shape} opacity="${alpha(opacity)}">${contents}</g>` });
     }
   }
   return groups.sort((a, b) => a.z - b.z).map(group => group.svg).join('\n');

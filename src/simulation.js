@@ -9,6 +9,8 @@ export const EMITTER_LIMIT = 32;
 export const MAX_TRAIL_MS = 1200;
 export const TRAIL_HISTORY = Math.ceil(MAX_TRAIL_MS / (1000 * STEP)) + 1;
 const TAU = 2 * Math.PI;
+const DEFAULT_ROTATION_SPEED = 180;
+const DEFAULT_ROTATION_VARIATION = 50;
 
 export function randomSource(seed) {
   let state = seed >>> 0;
@@ -24,10 +26,11 @@ export function emitterSettings(source = {}) {
   const {
     rate = 115, lifetime = 2.4, size = 0.085, sizeVariation = 100, speed = 2.6,
     speedVariation = 25, hueVariation = 0, drawSpeed = 25, smoothing = 0, brightness = DEFAULT_BRIGHTNESS,
+    rotationSpeed = DEFAULT_ROTATION_SPEED, rotationVariation = DEFAULT_ROTATION_VARIATION,
   } = source;
   return {
     rate, lifetime, size, sizeVariation, speed, speedVariation, hueVariation, drawSpeed, smoothing,
-    brightness: [...brightness],
+    rotationSpeed, rotationVariation, brightness: [...brightness],
   };
 }
 
@@ -160,6 +163,11 @@ export function emitterSampler(emitter) {
   };
 }
 
+function particleSpin(random, speed) {
+  const axis = new Vector3(random() - 0.5, random() - 0.5, random() - 0.5);
+  return axis.normalize().multiplyScalar(speed).toArray();
+}
+
 export class Simulation {
   constructor(settings, emitters, shapeCount) {
     this.settings = settings;
@@ -173,6 +181,7 @@ export class Simulation {
     this.particles = [];
     this.random = randomSource(this.settings.seed);
     this.hueRandom = randomSource(this.settings.seed ^ 0x9e3779b9);
+    this.rotationRandom = randomSource(this.settings.seed ^ 0xc2b2ae35);
   }
 
   seek(frame) {
@@ -192,6 +201,8 @@ export class Simulation {
       if (start >= drawDuration) continue;
       const sizeVariation = (emitter.sizeVariation ?? 100) / 100;
       const hueRange = MathUtils.degToRad(emitter.hueVariation ?? 0);
+      const rotationSpeed = MathUtils.degToRad(emitter.rotationSpeed ?? DEFAULT_ROTATION_SPEED);
+      const rotationVariation = (emitter.rotationVariation ?? DEFAULT_ROTATION_VARIATION) / 100;
       const first = Math.floor(start * emitter.rate + 1e-8) + 1;
       const last = Math.floor(Math.min(end, drawDuration) * emitter.rate + 1e-8);
       for (let i = first; i <= last && this.particles.length < CAPACITY; i++) {
@@ -216,7 +227,7 @@ export class Simulation {
           historyNext: 0,
           historyCount: 0,
           rotation: [TAU * random(), TAU * random(), TAU * random()],
-          spin: [(random() - 0.5) * 12, (random() - 0.5) * 12, (random() - 0.5) * 12],
+          spin: particleSpin(random, rotationSpeed * (1 + (2 * this.rotationRandom() - 1) * rotationVariation)),
           size: emitter.size * MathUtils.lerp(1, 0.38 + 0.95 * random() ** 2, sizeVariation),
           phase: random() * TAU,
           flashRate: 6 + 14 * random(),
