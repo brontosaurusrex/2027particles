@@ -422,6 +422,7 @@ async function start() {
     emission.replaceChildren();
     for (const [label, key, min, max, step, suffix] of [
       ['Rate / sec', 'rate', 0, 400, 1], ['Lifetime (s)', 'lifetime', 0.1, 8, 0.1],
+      ['Lifetime variation', 'lifetimeVariation', 0, 100, 1, '%'],
       ['Chip size', 'size', MIN_CHIP_SIZE, 0.3, 0.001], ['Size variation', 'sizeVariation', 0, 150, 1, '%'],
       ['Launch speed', 'speed', 0, 10, 0.1],
       ['Hue variation', 'hueVariation', 0, 180, 1, '°'],

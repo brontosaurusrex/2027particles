@@ -12,6 +12,7 @@ export const TRAIL_HISTORY = Math.ceil(2 * MAX_TRAIL_MS / (1000 * STEP)) + 1;
 const TAU = 2 * Math.PI;
 const DEFAULT_ROTATION_SPEED = 180;
 const DEFAULT_ROTATION_VARIATION = 50;
+const DEFAULT_LIFETIME_VARIATION = 28;
 const BURST_SIZE = 6;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
@@ -27,12 +28,13 @@ export function randomSource(seed) {
 
 export function emitterSettings(source = {}) {
   const {
-    rate = 115, lifetime = 2.4, size = 0.085, sizeVariation = 100, speed = 2.6,
+    rate = 115, lifetime = 2.4, lifetimeVariation = DEFAULT_LIFETIME_VARIATION,
+    size = 0.085, sizeVariation = 100, speed = 2.6,
     speedVariation = 25, hueVariation = 0, drawSpeed = 25, smoothing = 0, brightness = DEFAULT_BRIGHTNESS,
     rotationSpeed = DEFAULT_ROTATION_SPEED, rotationVariation = DEFAULT_ROTATION_VARIATION, splitChance = 0,
   } = source;
   return {
-    rate, lifetime, size, sizeVariation, speed, speedVariation, hueVariation, drawSpeed, smoothing,
+    rate, lifetime, lifetimeVariation, size, sizeVariation, speed, speedVariation, hueVariation, drawSpeed, smoothing,
     rotationSpeed, rotationVariation, splitChance, brightness: [...brightness],
   };
 }
@@ -274,6 +276,7 @@ export class Simulation {
       const { drawDuration } = emitter;
       if (start >= drawDuration) continue;
       const sizeVariation = (emitter.sizeVariation ?? 100) / 100;
+      const lifetimeVariation = (emitter.lifetimeVariation ?? DEFAULT_LIFETIME_VARIATION) / 100;
       const hueRange = MathUtils.degToRad(emitter.hueVariation ?? 0);
       const rotationSpeed = MathUtils.degToRad(emitter.rotationSpeed ?? DEFAULT_ROTATION_SPEED);
       const rotationVariation = (emitter.rotationVariation ?? DEFAULT_ROTATION_VARIATION) / 100;
@@ -291,7 +294,7 @@ export class Simulation {
           .add(new Vector3(0, 0.66, 0));
         const variation = emitter.speedVariation > 0 ? (2 * random() - 1) * emitter.speedVariation / 100 : 0;
         velocity.multiplyScalar(emitter.speed * (1 + variation));
-        const lifetime = emitter.lifetime * (0.72 + 0.56 * random());
+        const lifetime = Math.max(0.001, emitter.lifetime * (1 - lifetimeVariation + 2 * lifetimeVariation * random()));
         const splits = this.splitRandom() < splitChance;
         const splitAge = lifetime * (0.55 + 0.2 * this.splitRandom());
         this.particles.push({

@@ -29,6 +29,8 @@ Every emitter uses a mix of ♥ hearts, ★ stars, ❄ snowflakes, ● solid cir
 
 Rotation speed sets the tumble rate in degrees per second. Rotation variation spreads that rate above and below the selected speed. Set speed to 0°/s to hold each particle's starting orientation.
 
+Lifetime variation gives particles a spread around the selected Lifetime. At 0%, particles have the same starting lifetime. The 28% default preserves the original spread.
+
 Split chance gives each particle a chance to burst once into six smaller sparks partway through its life. Each burst scatters a mix of shapes and colors in 3D.
 
 Chip size can be set from 0.001 to 0.3. Size variation controls the spread around that size. Set it to 0% for equal-sized chips, 100% for the default mix, or up to 150% for a wider mix.
