@@ -11,6 +11,8 @@ Open the Local URL printed by Vite. Three.js uses WebGPU when available and fall
 
 Choose Line, Outline, or Area and drag on the work plane. Change the plane or offset before drawing. Use the emitter inspector to change its position, rotation, and emission. Orbit mode lets you drag to orbit, scroll to zoom, and right-drag to pan.
 
+Choose Camera plane to draw flat to the current view. At zero offset the plane passes through the orbit target. Positive offsets bring it toward the camera. The finished emitter stays in its 3D position and orientation as you orbit.
+
 In Outline or Area mode, choose Circle or Square and drag outward from the center. Outline emits around the perimeter. Area emits across the filled shape.
 
 Choose Curve in Line, Outline, or Area mode. Click to place points on the drawing plane. Use Finish curve or Enter to commit it. Backspace removes the last point while drawing, and Escape cancels the curve.
@@ -41,7 +43,7 @@ Chip size can be set from 0.001 to 0.3. Size variation controls the spread aroun
 
 Hue variation gives each particle from the selected emitter a consistent random color shift. At 0° the palette stays gold. Wider ranges add more colors in the preview, PNG frames, and SVG.
 
-Lines and outlines emit from the moving tip as they draw in. Set Draw speed to 25%/s for a four-second reveal, or to 0%/s for continuous emission along the whole stroke.
+Lines and outlines emit from the moving tip as they draw in. Set Draw speed to 25%/s for a four-second reveal, or to 0%/s for continuous emission along the whole stroke. Use Draw direction to run a line forward or reverse, or trace an outline clockwise or counterclockwise as seen from the front of the emitter.
 
 Use Smoothing on a line or outline to round its corners. New emitters start with the most recently drawn emitter's settings. An old emitter preset opens in a starter scene, where it can be saved as a full project.
 

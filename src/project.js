@@ -80,6 +80,8 @@ function readEmitter(value) {
       primitive === 'curve' ? 40 : 36, 'emitter position'),
     rotation: vector(emitter.rotation, 3, -360, 360, 'emitter rotation'),
     ...boundedSettings(emitterSettings({ ...emitter, brightness }), emitterBounds, 'emitter'),
+    drawDirection: choice(emitter.drawDirection ?? 'as-drawn',
+      ['as-drawn', 'reverse', 'clockwise', 'counterclockwise'], 'draw direction'),
     brightness,
   };
 }
@@ -139,7 +141,7 @@ export function decodeProject(contents) {
     },
     editor: {
       mode: choice(editor.mode, ['orbit', 'line', 'outline', 'area'], 'drawing mode'),
-      plane: choice(editor.plane, ['xy', 'xz', 'yz'], 'drawing plane'),
+      plane: choice(editor.plane, ['xy', 'xz', 'yz', 'camera'], 'drawing plane'),
       planeOffset: number(editor.planeOffset, -12, 12, 'drawing plane offset'),
       drawingShape: choice(editor.drawingShape ?? 'freehand', ['freehand', 'curve', 'circle', 'square'], 'drawing shape'),
       previewQuality: choice(editor.previewQuality ?? 'auto', ['auto', 'full'], 'preview quality'),

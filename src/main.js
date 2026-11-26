@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createRenderer, WIDTH, HEIGHT } from './renderer.js';
 import {
   EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_TRAIL_MS, MIN_CHIP_SIZE, STEP, Simulation, createEmitter, emitterRotation, polygonFaces,
-  curvePoints, emitterSettings, positionOnStroke, primitivePoints, strokeDuration, strokePath, validateStroke,
+  curvePoints, emitterSettings, outlineDirection, positionOnStroke, primitivePoints, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
 import { FULL_DOF_SAMPLES, chooseDestination, discardDestination, renderArchive, renderPrintFrame, sequenceFrameCount } from './export.js';
 import { renderVectorFrame } from './export-svg.js';
@@ -82,6 +82,9 @@ async function start() {
   const zero = new THREE.Vector3();
   const normal = new THREE.Vector3();
   const point = new THREE.Vector3();
+  const cameraPoint = new THREE.Vector3();
+  const drawingPlane = $('plane');
+  const planeOffset = $('plane-offset');
   const drawingShape = $('drawing-shape');
   const finishCurveButton = $('finish-curve');
 
@@ -112,13 +115,15 @@ async function start() {
   }
 
   function updatePlane() {
-    discardCurve();
-    workPlane.rotation.set(...planeAngles[$('plane').value].map(THREE.MathUtils.degToRad));
+    if (stroke) return;
+    const cameraPlane = drawingPlane.value === 'camera';
+    if (cameraPlane) workPlane.quaternion.copy(camera.quaternion);
+    else workPlane.rotation.set(...planeAngles[drawingPlane.value].map(THREE.MathUtils.degToRad));
     normal.set(0, 0, 1).applyQuaternion(workPlane.quaternion);
-    const offset = $('plane-offset');
-    const distance = THREE.MathUtils.clamp(Number(offset.value) || 0, -12, 12);
-    offset.value = distance;
+    const distance = THREE.MathUtils.clamp(Number(planeOffset.value) || 0, -12, 12);
+    planeOffset.value = distance;
     workPlane.position.copy(normal).multiplyScalar(distance);
+    if (cameraPlane) workPlane.position.add(orbit.target);
     workPlane.updateMatrixWorld(true);
     plane.setFromNormalAndCoplanarPoint(normal, workPlane.position);
     dirty = true;
@@ -126,12 +131,15 @@ async function start() {
 
   function strokePoint(event) {
     const bounds = stage.getBoundingClientRect();
+    camera.updateMatrixWorld();
     ray.setFromCamera({
       x: (event.clientX - bounds.left) / bounds.width * 2 - 1,
       y: 1 - (event.clientY - bounds.top) / bounds.height * 2,
     }, camera);
     if (Math.abs(ray.ray.direction.dot(normal)) < 0.045) return null;
     if (!ray.ray.intersectPlane(plane, point) || point.distanceToSquared(zero) > 1200) return null;
+    const depth = -cameraPoint.copy(point).applyMatrix4(camera.matrixWorldInverse).z;
+    if (depth < camera.near || depth > camera.far) return null;
     workPlane.worldToLocal(point);
     return [point.x, point.y];
   }
@@ -153,7 +161,7 @@ async function start() {
       group.quaternion.copy(emitterRotation(emitter));
       const active = emitter === selected || emitter === stroke;
       const tint = active ? 0xf4c468 : 0x9a907a;
-      const path = strokePath(emitter === stroke ? { ...emitter, smoothing: 0 } : emitter);
+      const path = strokePath(emitter === stroke ? { ...emitter, smoothing: 0, drawSpeed: 0 } : emitter);
       const duration = emitter === stroke ? Infinity : strokeDuration(emitter);
       const animated = Number.isFinite(duration);
       const material = new THREE.LineBasicMaterial({
@@ -245,8 +253,12 @@ async function start() {
     discardCurve();
     showDrawingHint();
   });
-  $('plane').addEventListener('change', updatePlane);
-  $('plane-offset').addEventListener('change', updatePlane);
+  function changePlane() {
+    discardCurve();
+    updatePlane();
+  }
+  drawingPlane.addEventListener('change', changePlane);
+  planeOffset.addEventListener('change', changePlane);
   $('reset-view').addEventListener('click', () => {
     resetCamera();
     focalLengthInput.setValue(focalLength);
@@ -271,7 +283,10 @@ async function start() {
     (active ? viewport : fullscreen).focus({ preventScroll: true });
     dirty = true;
   });
-  orbit.addEventListener('change', () => { dirty = true; });
+  orbit.addEventListener('change', () => {
+    if (drawingPlane.value === 'camera') updatePlane();
+    dirty = true;
+  });
   updatePlane();
   setMode('orbit');
 
@@ -284,17 +299,20 @@ async function start() {
       $('hint').textContent = `Delete an emitter before adding another. Maximum ${EMITTER_LIMIT}.`;
       return;
     }
+    if (drawingPlane.value === 'camera') updatePlane();
     const first = strokePoint(event);
     if (!first) {
-      $('hint').textContent = 'Choose another plane or orbit until the grid faces the camera.';
+      $('hint').textContent = drawingPlane.value === 'camera'
+        ? 'Move the camera or adjust Offset to bring the drawing plane into view.'
+        : 'Choose another plane or orbit until the grid faces the camera.';
       return;
     }
     event.preventDefault();
     pause();
     if (!stroke) {
       showDrawingHint();
-      stroke = createEmitter(nextId, mode, [first], workPlane.position.toArray(),
-        planeAngles[$('plane').value], emitters.at(-1));
+      const rotation = workPlane.rotation.toArray().slice(0, 3).map(THREE.MathUtils.radToDeg);
+      stroke = createEmitter(nextId, mode, [first], workPlane.position.toArray(), rotation, emitters.at(-1));
       if (drawingShape.value !== 'freehand') stroke.primitive = drawingShape.value;
     }
     if (stroke.primitive === 'curve') {
@@ -338,6 +356,7 @@ async function start() {
     stroke = null;
     curveAnchors = [];
     finishCurveButton.hidden = true;
+    updatePlane();
   }
 
   function discardCurve() {
@@ -449,12 +468,31 @@ async function start() {
           invalidateSimulation();
         }, '%', emitterDefaults.smoothing);
       }
+      const direction = document.createElement('select');
+      direction.setAttribute('aria-label', 'Draw direction');
       const { input } = range(emission, 'Draw speed', 0, 100, 0.5, selected.drawSpeed, value => {
         selected.drawSpeed = value;
+        direction.disabled = value === 0;
         updateGuides();
         invalidateSimulation();
       }, '%/s', emitterDefaults.drawSpeed);
       input.title = 'Percentage of the stroke revealed per second. Set to 0 for continuous emission along the whole stroke.';
+      const line = selected.kind === 'line';
+      const options = line ? [['Forward', 'as-drawn'], ['Reverse', 'reverse']] :
+        [['Clockwise', 'clockwise'], ['Counterclockwise', 'counterclockwise']];
+      direction.replaceChildren(...options.map(([label, value]) => new Option(label, value)));
+      direction.value = selected.drawDirection;
+      if (!direction.value) direction.value = line ? 'as-drawn' : outlineDirection(selected.points);
+      direction.disabled = selected.drawSpeed === 0;
+      direction.addEventListener('change', () => {
+        selected.drawDirection = direction.value;
+        updateGuides();
+        invalidateSimulation();
+      });
+      const row = document.createElement('label');
+      row.className = 'select-row';
+      row.append('Draw direction', direction);
+      emission.append(row);
     }
     const transform = $('transform');
     brightnessEditor.setCurve(selected.brightness);
@@ -706,7 +744,7 @@ async function start() {
         position: camera.position.toArray(), target: orbit.target.toArray(), focalLength, winter,
       },
       editor: {
-        mode, plane: $('plane').value, planeOffset: Number($('plane-offset').value),
+        mode, plane: drawingPlane.value, planeOffset: Number(planeOffset.value),
         drawingShape: drawingShape.value,
         previewQuality: previewQuality.value, frameRate: Number(frameRate.value),
       },
@@ -768,8 +806,8 @@ async function start() {
     emitters.splice(0, emitters.length, ...project.emitters);
     selected = emitters.find(emitter => emitter.id === project.selectedEmitterId);
     nextId = project.nextEmitterId;
-    $('plane').value = project.editor.plane;
-    $('plane-offset').value = project.editor.planeOffset;
+    drawingPlane.value = project.editor.plane;
+    planeOffset.value = project.editor.planeOffset;
     drawingShape.value = project.editor.drawingShape;
     previewQuality.value = project.editor.previewQuality;
     frameRate.value = String(project.editor.frameRate);

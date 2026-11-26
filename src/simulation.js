@@ -31,13 +31,14 @@ export function emitterSettings(source = {}) {
   const {
     rate = 115, lifetime = 2.4, lifetimeVariation = DEFAULT_LIFETIME_VARIATION,
     size = 0.085, sizeVariation = 100, speed = 2.6, speedVariation = 25, launchSpread = 100,
-    hueVariation = 0, drawSpeed = 25, smoothing = 0, brightness = DEFAULT_BRIGHTNESS, brightnessVariation = 0,
+    hueVariation = 0, drawSpeed = 25, drawDirection = 'as-drawn', smoothing = 0,
+    brightness = DEFAULT_BRIGHTNESS, brightnessVariation = 0,
     rotationSpeed = DEFAULT_ROTATION_SPEED, rotationVariation = DEFAULT_ROTATION_VARIATION,
     splitChance = 0, burstSizeVariation = 0, sparkleAmount = 0,
   } = source;
   return {
     rate, lifetime, lifetimeVariation, size, sizeVariation, speed, speedVariation, launchSpread, hueVariation,
-    drawSpeed, smoothing, rotationSpeed, rotationVariation, splitChance, burstSizeVariation,
+    drawSpeed, drawDirection, smoothing, rotationSpeed, rotationVariation, splitChance, burstSizeVariation,
     brightness: [...brightness], brightnessVariation, sparkleAmount,
   };
 }
@@ -100,10 +101,23 @@ function smoothStroke(points, closed, smoothing) {
   return vertices;
 }
 
-export function strokePath({ kind, points, smoothing = 0, primitive }) {
+export function outlineDirection(points) {
+  let signedArea = 0;
+  for (const [index, [x, y]] of points.entries()) {
+    const [nextX, nextY] = points[(index + 1) % points.length];
+    signedArea += x * nextY - y * nextX;
+  }
+  return signedArea < 0 ? 'clockwise' : 'counterclockwise';
+}
+
+export function strokePath({ kind, points, smoothing = 0, primitive, drawSpeed, drawDirection }) {
   const closed = kind !== 'line';
   const path = smoothStroke(points, closed, kind === 'area' || primitive ? 0 : smoothing);
-  const vertices = closed ? [...path, path[0]] : path;
+  const reverse = drawSpeed !== 0 && (kind === 'line' ? drawDirection === 'reverse' :
+    kind === 'outline' && (drawDirection === 'clockwise' || drawDirection === 'counterclockwise') &&
+    drawDirection !== outlineDirection(points));
+  const vertices = closed ? [...path, path[0]] : reverse ? [...path] : path;
+  if (reverse) vertices.reverse();
   let length = 0;
   const distances = vertices.map(([x, y], index) => {
     if (index > 0) length += Math.hypot(x - vertices[index - 1][0], y - vertices[index - 1][1]);
