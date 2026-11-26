@@ -15,7 +15,7 @@ In Outline or Area mode, choose Circle or Square and drag outward from the cente
 
 Choose Curve in Line, Outline, or Area mode. Click to place points on the drawing plane. Use Finish curve or Enter to commit it. Backspace removes the last point while drawing, and Escape cancels the curve.
 
-Save project downloads a JSON file with the emitters, camera, forces, trail and blur settings, drawing plane, timeline and export preferences. Load project restores that file in the editor. Project slots hold the same full scene in 20 named slots in your browser. Use Rename to change a slot's name while keeping its saved scene.
+Save project downloads a JSON file with the emitters, camera, forces, trail and blur settings, drawing plane, timeline and export preferences. Load project restores that file in the editor. Project slots hold the same full scene in 20 named slots in your browser. The editor reopens the last slot you loaded when the page starts. Use Rename to change a slot's name while keeping its saved scene.
 
 Right-click a slider to reset it to its default value.
 
@@ -27,7 +27,7 @@ Each emitter has its own launch Speed variation and Launch spread. Set spread to
 
 Drag the points on the Lifetime brightness curve or enter brightness percentages at the five ages. Brightness variation makes individual particles and sparks dimmer or brighter across the whole curve. Particles become more transparent near the end of their lives.
 
-Sparkle amount controls how many particles and burst sparks can briefly flash with a star-shaped glint. Glints vary in size from particle to particle. The slider starts at 0% in the starter scene. Older projects load with 46%, which matches their original flash frequency.
+Sparkle amount controls how many particles and burst sparks can briefly flash with a star-shaped glint. Glints vary in size from particle to particle. The default is 0%, including for older projects that lack a saved sparkle amount.
 
 Every emitter uses a mix of ♥ hearts, ★ stars, ❄ snowflakes, ● solid circles, ✚ plus signs, ✦ sparkles, ✿ flowers, ⚡ lightning bolts, and ○ rings. Solid circles appear twice as often as each other shape.
 

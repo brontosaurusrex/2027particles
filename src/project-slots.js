@@ -1,9 +1,10 @@
-import { LEGACY_SPARKLE_AMOUNT, decodeProject, encodeProject } from './project.js';
+import { decodeProject, encodeProject } from './project.js';
 import { emitterSettings } from './simulation.js';
 
 const SLOT_COUNT = 20;
 const DATABASE_NAME = '2027particles';
 const LEGACY_KEY = '2027particles.emitter-presets.v1';
+const LAST_SLOT_KEY = '2027particles.last-opened-slot.v1';
 
 function connect() {
   return new Promise((resolve, reject) => {
@@ -42,7 +43,7 @@ export function mountProjectSlots(dialog, open, captureProject, restoreProject, 
       const value = JSON.parse(localStorage.getItem(`${LEGACY_KEY}.${slotNumber(index)}`));
       if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
       const draft = structuredClone(starterProject);
-      Object.assign(draft.emitters[0], emitterSettings({ sparkleAmount: LEGACY_SPARKLE_AMOUNT, ...value }));
+      Object.assign(draft.emitters[0], emitterSettings(value));
       return decodeProject(encodeProject(draft));
     } catch {
       return null;
@@ -93,6 +94,27 @@ export function mountProjectSlots(dialog, open, captureProject, restoreProject, 
     }
   }
 
+  async function readSlot(db, index) {
+    const saved = await transaction(db, 'projects', 'readonly', tx => tx.objectStore('projects').get(index));
+    return saved === undefined ? structuredClone(legacy[index]) : decodeProject(saved);
+  }
+
+  async function restoreLastSlot() {
+    try {
+      const value = localStorage.getItem(LAST_SLOT_KEY);
+      const index = Number(value);
+      if (!Number.isInteger(index) || String(index) !== value || index < 0 || index >= SLOT_COUNT) return false;
+      database ??= await connect();
+      const project = await readSlot(database, index);
+      if (!project) return false;
+      restoreProject(project);
+      refresh(index);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   open.addEventListener('click', () => {
     dialog.showModal();
     run(async db => {
@@ -139,13 +161,19 @@ export function mountProjectSlots(dialog, open, captureProject, restoreProject, 
   load.addEventListener('click', () => {
     const index = slotIndex();
     run(async db => {
-      const saved = await transaction(db, 'projects', 'readonly', tx => tx.objectStore('projects').get(index));
+      const project = await readSlot(db, index);
       if (!dialog.open) return;
-      if (!saved && !legacy[index]) throw new Error('This slot is empty.');
-      restoreProject(saved ? decodeProject(saved) : structuredClone(legacy[index]));
+      if (!project) throw new Error('This slot is empty.');
+      restoreProject(project);
+      try {
+        localStorage.setItem(LAST_SLOT_KEY, String(index));
+      } catch {
+        // Slot loading also works when the browser blocks localStorage.
+      }
       dialog.close();
     });
   });
 
   refresh(0);
+  return restoreLastSlot;
 }

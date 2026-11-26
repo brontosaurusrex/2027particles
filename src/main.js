@@ -716,7 +716,9 @@ async function start() {
     };
   }
 
-  mountProjectSlots($('slots-dialog'), $('project-slots'), captureProject, restoreProject, structuredClone(captureProject()));
+  const restoreLastSlot = mountProjectSlots(
+    $('slots-dialog'), $('project-slots'), captureProject, restoreProject, structuredClone(captureProject()),
+  );
 
   $('save-project').addEventListener('click', () => {
     const json = encodeProject(captureProject());
@@ -929,6 +931,7 @@ async function start() {
     $('export-background').querySelector('option[value=winter]').disabled = true;
     $('hint').textContent = 'Could not load winter lighting. You can still preview and export sparks.';
   }
+  if (!await restoreLastSlot()) play();
   status.textContent = view.isWebGL ? 'WebGL 2' : 'WebGPU';
   ready = true;
   $('export').disabled = false;
@@ -937,7 +940,6 @@ async function start() {
   $('save-project').disabled = false;
   $('load-project').disabled = false;
   $('project-slots').disabled = false;
-  play();
 }
 
 function downloadFile(contents, type, name) {
