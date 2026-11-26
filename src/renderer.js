@@ -97,6 +97,8 @@ class ParticleRenderer {
     const opaque = this.backdropMode.min(1);
     const linear = mix(sceneColor.rgb.div(alpha.max(0.0001)), sceneColor.rgb.add(background.mul(alpha.oneMinus())), opaque);
     const displayColor = renderOutput(vec4(linear, mix(alpha, 1, opaque)), THREE.ACESFilmicToneMapping, THREE.SRGBColorSpace);
+    // PNG stores straight RGB and alpha. The transparent branch has already divided out alpha.
+    displayColor.premultipliedAlpha = false;
     const compositeMaterial = new THREE.NodeMaterial();
     compositeMaterial.setValues({ depthTest: false, depthWrite: false });
     compositeMaterial.fragmentNode = displayColor;
