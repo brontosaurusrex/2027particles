@@ -3,6 +3,7 @@ import { FPS, FRAME_COUNT, Simulation } from './simulation.js';
 import { WIDTH, HEIGHT } from './renderer.js';
 
 export const ARCHIVE_NAME = '2027particles.zip';
+export const FULL_DOF_SAMPLES = 24;
 const PRINT_WIDTH = WIDTH * 2;
 const PRINT_HEIGHT = HEIGHT * 2;
 const PRINT_PPI = 300;
@@ -11,8 +12,8 @@ export function sequenceFrameCount(frameRate) {
   return FRAME_COUNT * frameRate / FPS;
 }
 
-function exportSamples(effects) {
-  return effects.depth > 0 ? 24 : 16;
+function exportSamples(snapshot) {
+  return snapshot.effects.depth > 0 ? (snapshot.dofSamples ?? FULL_DOF_SAMPLES) : 16;
 }
 
 export async function renderPrintFrame(view, snapshot, signal, onProgress) {
@@ -21,13 +22,14 @@ export async function renderPrintFrame(view, snapshot, signal, onProgress) {
   const canvas = new OffscreenCanvas(PRINT_WIDTH, PRINT_HEIGHT);
   const context = canvas.getContext('2d');
   const tileCount = PRINT_WIDTH * PRINT_HEIGHT / (WIDTH * HEIGHT);
+  const sampleCount = exportSamples(snapshot);
   let completed = 0;
   for (let y = 0; y < PRINT_HEIGHT; y += HEIGHT) {
     for (let x = 0; x < PRINT_WIDTH; x += WIDTH) {
       signal.throwIfAborted();
       camera.setViewOffset(PRINT_WIDTH, PRINT_HEIGHT, x, y, WIDTH, HEIGHT);
       view.draw(simulation, snapshot.frame, camera, snapshot.effects, WIDTH, HEIGHT, {
-        exporting: true, sampleCount: exportSamples(snapshot.effects), winter: false,
+        exporting: true, sampleCount, winter: false,
       });
       const tile = await view.readImage();
       signal.throwIfAborted();
@@ -98,7 +100,7 @@ export async function renderArchive(view, snapshot, destination, signal, onProgr
   const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices);
   const frameCount = sequenceFrameCount(snapshot.frameRate);
   const stride = FPS / snapshot.frameRate;
-  const sampleCount = exportSamples(snapshot.effects);
+  const sampleCount = exportSamples(snapshot);
   const png = new OffscreenCanvas(WIDTH, HEIGHT);
   const context = png.getContext('2d');
   const writer = (await destination.handle.createWritable()).getWriter();

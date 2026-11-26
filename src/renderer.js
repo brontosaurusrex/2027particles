@@ -138,7 +138,7 @@ class ParticleRenderer {
       const lifeScale = Math.min(1, (lifetime - age) * 7 + 0.12);
       const lifeProgress = age / lifetime;
       const opacity = THREE.MathUtils.smoothstep(1 - lifeProgress, 0, 0.75);
-      const brightness = brightnessAt(particle.brightness ?? DEFAULT_BRIGHTNESS, lifeProgress);
+      const brightness = brightnessAt(particle.brightness ?? DEFAULT_BRIGHTNESS, lifeProgress) * particle.brightnessScale;
       const angle = particle.hue ?? 0;
       object.position.lerpVectors(particle.previous, particle.position, fraction);
       trails.add(particle, object.position, time, lifeScale, opacity, brightness);

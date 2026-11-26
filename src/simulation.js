@@ -29,13 +29,15 @@ export function randomSource(seed) {
 export function emitterSettings(source = {}) {
   const {
     rate = 115, lifetime = 2.4, lifetimeVariation = DEFAULT_LIFETIME_VARIATION,
-    size = 0.085, sizeVariation = 100, speed = 2.6,
-    speedVariation = 25, hueVariation = 0, drawSpeed = 25, smoothing = 0, brightness = DEFAULT_BRIGHTNESS,
-    rotationSpeed = DEFAULT_ROTATION_SPEED, rotationVariation = DEFAULT_ROTATION_VARIATION, splitChance = 0,
+    size = 0.085, sizeVariation = 100, speed = 2.6, speedVariation = 25, launchSpread = 100,
+    hueVariation = 0, drawSpeed = 25, smoothing = 0, brightness = DEFAULT_BRIGHTNESS, brightnessVariation = 0,
+    rotationSpeed = DEFAULT_ROTATION_SPEED, rotationVariation = DEFAULT_ROTATION_VARIATION,
+    splitChance = 0, burstSizeVariation = 0,
   } = source;
   return {
-    rate, lifetime, lifetimeVariation, size, sizeVariation, speed, speedVariation, hueVariation, drawSpeed, smoothing,
-    rotationSpeed, rotationVariation, splitChance, brightness: [...brightness],
+    rate, lifetime, lifetimeVariation, size, sizeVariation, speed, speedVariation, launchSpread, hueVariation,
+    drawSpeed, smoothing, rotationSpeed, rotationVariation, splitChance, burstSizeVariation,
+    brightness: [...brightness], brightnessVariation,
   };
 }
 
@@ -228,6 +230,9 @@ export class Simulation {
     this.trailRandom = randomSource(this.settings.seed ^ 0x85ebca6b);
     this.splitRandom = randomSource(this.settings.seed ^ 0x27d4eb2f);
     this.fragmentRandom = randomSource(this.settings.seed ^ 0x165667b1);
+    this.burstCountRandom = randomSource(this.settings.seed ^ 0xd3a2646c);
+    this.brightnessRandom = randomSource(this.settings.seed ^ 0xfd7046c5);
+    this.fragmentBrightnessRandom = randomSource(this.settings.seed ^ 0x94d049bb);
   }
 
   seek(frame) {
@@ -236,13 +241,14 @@ export class Simulation {
   }
 
   burst(parent, birth) {
+    const { burstCount } = parent;
     const random = this.fragmentRandom;
     const offset = TAU * random();
     const colorOffset = TAU * random();
     const shapes = this.uniqueShapes.filter(shape => shape !== parent.shape);
     const spin = Math.hypot(...parent.spin);
-    for (let index = 0; index < BURST_SIZE; index++) {
-      const z = (2 * (index + 0.5)) / BURST_SIZE - 1;
+    for (let index = 0; index < burstCount; index++) {
+      const z = (2 * (index + 0.5)) / burstCount - 1;
       const radius = Math.sqrt(1 - z * z);
       const angle = offset + index * GOLDEN_ANGLE;
       const [shape = parent.shape] = shapes.splice(Math.floor(random() * shapes.length), 1);
@@ -251,6 +257,7 @@ export class Simulation {
       this.particles.push({
         birth, death: birth + 0.4 + 0.35 * random(),
         brightness: parent.brightness,
+        brightnessScale: 1 + (2 * this.fragmentBrightnessRandom() - 1) * parent.brightnessVariation,
         ...particleHistory(parent.position.clone()),
         velocity,
         trailLengthJitter: 2 * random() - 1,
@@ -260,7 +267,7 @@ export class Simulation {
         phase: random() * TAU,
         flashRate: 10 + 12 * random(),
         glint: random() < 0.7,
-        shape, shade: parent.shade, hue: (colorOffset + index * TAU / BURST_SIZE + parent.hue) % TAU,
+        shape, shade: parent.shade, hue: (colorOffset + index * TAU / burstCount + parent.hue) % TAU,
       });
     }
   }
@@ -281,6 +288,12 @@ export class Simulation {
       const rotationSpeed = MathUtils.degToRad(emitter.rotationSpeed ?? DEFAULT_ROTATION_SPEED);
       const rotationVariation = (emitter.rotationVariation ?? DEFAULT_ROTATION_VARIATION) / 100;
       const splitChance = (emitter.splitChance ?? 0) / 100;
+      const launchSpread = (emitter.launchSpread ?? 100) / 100;
+      const launchDirection = launchSpread === 1 ? null : new Vector3(0, 0.66, 0).addScaledVector(emitter.normal, 0.525);
+      const brightnessVariation = (emitter.brightnessVariation ?? 0) / 100;
+      const burstSizeVariation = (emitter.burstSizeVariation ?? 0) / 100;
+      const minBurstCount = BURST_SIZE - Math.round(4 * burstSizeVariation);
+      const maxBurstCount = BURST_SIZE + Math.round(2 * burstSizeVariation);
       const first = Math.floor(start * emitter.rate + 1e-8) + 1;
       const last = Math.floor(Math.min(end, drawDuration) * emitter.rate + 1e-8);
       for (let i = first; i <= last && this.particles.length < CAPACITY; i++) {
@@ -292,6 +305,10 @@ export class Simulation {
         const velocity = new Vector3(Math.cos(angle) * outward, Math.sin(angle) * outward, 0)
           .addScaledVector(emitter.normal, 0.15 + 0.75 * random())
           .add(new Vector3(0, 0.66, 0));
+        if (launchDirection) {
+          const speed = velocity.length();
+          velocity.multiplyScalar(launchSpread).addScaledVector(launchDirection, 1 - launchSpread).setLength(speed);
+        }
         const variation = emitter.speedVariation > 0 ? (2 * random() - 1) * emitter.speedVariation / 100 : 0;
         velocity.multiplyScalar(emitter.speed * (1 + variation));
         const lifetime = Math.max(0.001, emitter.lifetime * (1 - lifetimeVariation + 2 * lifetimeVariation * random()));
@@ -301,7 +318,10 @@ export class Simulation {
           birth,
           death: birth + lifetime,
           burstAt: splits ? birth + splitAge : Infinity,
+          burstCount: splits ? minBurstCount + Math.floor(this.burstCountRandom() * (maxBurstCount - minBurstCount + 1)) : 0,
           brightness: emitter.brightness ?? DEFAULT_BRIGHTNESS,
+          brightnessVariation,
+          brightnessScale: 1 + (2 * this.brightnessRandom() - 1) * brightnessVariation,
           ...particleHistory(position),
           velocity,
           trailLengthJitter: 2 * this.trailRandom() - 1,
@@ -321,7 +341,7 @@ export class Simulation {
     for (const particle of this.particles) {
       const { position, previous, velocity, birth, phase } = particle;
       const dueToBurst = particle.burstAt <= end;
-      const canBurst = dueToBurst && this.particles.length <= CAPACITY - BURST_SIZE;
+      const canBurst = dueToBurst && this.particles.length <= CAPACITY - particle.burstCount;
       if (dueToBurst && !canBurst) particle.burstAt = Infinity;
       const sampleTime = Math.max(start, birth);
       const duration = (canBurst ? particle.burstAt : end) - sampleTime;

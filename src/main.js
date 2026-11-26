@@ -6,7 +6,7 @@ import {
   EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_TRAIL_MS, MIN_CHIP_SIZE, STEP, Simulation, createEmitter, emitterRotation, polygonFaces,
   curvePoints, emitterSettings, positionOnStroke, primitivePoints, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
-import { chooseDestination, discardDestination, renderArchive, renderPrintFrame, sequenceFrameCount } from './export.js';
+import { FULL_DOF_SAMPLES, chooseDestination, discardDestination, renderArchive, renderPrintFrame, sequenceFrameCount } from './export.js';
 import { renderVectorFrame } from './export-svg.js';
 import { mountBrightnessEditor } from './brightness-editor.js';
 import { mountProjectSlots } from './project-slots.js';
@@ -420,26 +420,26 @@ async function start() {
     if (!selected) return;
     const emission = $('emission');
     emission.replaceChildren();
-    for (const [label, key, min, max, step, suffix] of [
+    for (const [label, key, min, max, step, suffix, title] of [
       ['Rate / sec', 'rate', 0, 400, 1], ['Lifetime (s)', 'lifetime', 0.1, 8, 0.1],
       ['Lifetime variation', 'lifetimeVariation', 0, 100, 1, '%'],
       ['Chip size', 'size', MIN_CHIP_SIZE, 0.3, 0.001], ['Size variation', 'sizeVariation', 0, 150, 1, '%'],
       ['Launch speed', 'speed', 0, 10, 0.1],
+      ['Speed variation', 'speedVariation', 0, 100, 1, '%', 'Random variation above and below the launch speed.'],
+      ['Launch spread', 'launchSpread', 0, 200, 1, '%', '0% is a jet. 100% is the default spread.'],
       ['Hue variation', 'hueVariation', 0, 180, 1, '°'],
+      ['Brightness variation', 'brightnessVariation', 0, 100, 1, '%', 'Varies the brightness of each particle across its lifetime.'],
       ['Rotation speed', 'rotationSpeed', 0, 360, 1, '°/s'],
       ['Rotation variation', 'rotationVariation', 0, 100, 1, '%'],
       ['Split chance', 'splitChance', 0, 100, 1, '%'],
+      ['Burst size variation', 'burstSizeVariation', 0, 100, 1, '%', 'Each split makes six sparks at 0%, or two to eight at 100%.'],
     ]) {
-      range(emission, label, min, max, step, selected[key], value => {
+      const { input } = range(emission, label, min, max, step, selected[key], value => {
         selected[key] = value;
         invalidateSimulation();
       }, suffix, emitterDefaults[key]);
+      if (title) input.title = title;
     }
-    const { input: variation } = range(emission, 'Speed variation', 0, 100, 1, selected.speedVariation, value => {
-      selected.speedVariation = value;
-      invalidateSimulation();
-    }, '%', emitterDefaults.speedVariation);
-    variation.title = 'Random variation above and below the launch speed.';
     if (selected.kind !== 'area') {
       if (!selected.primitive) {
         range(emission, 'Smoothing', 0, 100, 1, selected.smoothing, value => {
@@ -579,7 +579,7 @@ async function start() {
         discardCurve();
       }
     }
-    if (event.code !== 'Space' || $('export-dialog').open || $('slots-dialog').open ||
+    if (event.code !== 'Space' || exportDialog.open || printDialog.open || $('slots-dialog').open ||
         (!previewFullscreen && event.target !== document.body)) return;
     event.preventDefault();
     if (!event.repeat) togglePlayback();
@@ -595,6 +595,7 @@ async function start() {
   let elapsed = 0;
   let lastDraw = 0;
   let lastWidth = 0;
+  let lastPreviewSamples = profiles[0][1];
   function resetQuality() {
     quality = qualityFrames = smoothWindows = elapsed = lastDraw = 0;
     dirty = true;
@@ -643,6 +644,7 @@ async function start() {
     view.draw(simulation, frame, camera, effects, width, height, {
       exporting: false, sampleCount: previewSamples, winter, overlay: showGuides ? guides : null,
     });
+    lastPreviewSamples = previewSamples;
     if (width !== lastWidth) {
       previewResolution.textContent = `${width} × ${height}`;
       qualityFrames = elapsed = 0;
@@ -666,6 +668,9 @@ async function start() {
   });
 
   const exportDialog = $('export-dialog');
+  const printDialog = $('print-dialog');
+  const printSampling = $('print-dof-sampling');
+  const sequenceSampling = $('sequence-dof-sampling');
   const progress = $('export-progress');
   const exportStatus = $('export-status');
   const done = $('download');
@@ -673,6 +678,24 @@ async function start() {
   const exportBackground = $('export-background');
   const projectFile = $('project-file');
   const projectStatus = $('project-status');
+  let previewSamplesAtOpen;
+
+  for (const select of [printSampling, sequenceSampling]) {
+    select.querySelector('[value="full"]').textContent = `Export quality (${FULL_DOF_SAMPLES} samples)`;
+  }
+
+  function openExportDialog(dialog, select) {
+    previewSamplesAtOpen = lastPreviewSamples;
+    select.closest('label').hidden = effects.depth === 0;
+    select.querySelector('[value="preview"]').textContent =
+      `Match preview (${previewSamplesAtOpen} samples)`;
+    pause();
+    dialog.showModal();
+  }
+
+  function chosenDofSamples(select) {
+    return select.value === 'preview' ? previewSamplesAtOpen : FULL_DOF_SAMPLES;
+  }
 
   function captureProject() {
     return {
@@ -688,6 +711,7 @@ async function start() {
       },
       playback: { frame, playing, loop: loop.checked },
       exportBackground: exportBackground.value,
+      exportDofSampling: { print: printSampling.value, sequence: sequenceSampling.value },
     };
   }
 
@@ -706,7 +730,7 @@ async function start() {
     projectStatus.hidden = true;
     try {
       const project = await readProject(file);
-      if (exportDialog.open) throw new Error('Close the PNG export dialog before loading a project.');
+      if (exportDialog.open || printDialog.open) throw new Error('Close the PNG export dialog before loading a project.');
       restoreProject(project);
       projectStatus.textContent = 'Project loaded.';
     } catch (error) {
@@ -734,6 +758,8 @@ async function start() {
     winter = project.camera.winter;
     $('winter').checked = winter;
     exportBackground.value = project.exportBackground;
+    printSampling.value = project.exportDofSampling.print;
+    sequenceSampling.value = project.exportDofSampling.sequence;
 
     resetStroke();
     emitters.splice(0, emitters.length, ...project.emitters);
@@ -769,19 +795,25 @@ async function start() {
       dirty = true;
     }
   });
-  printButton.addEventListener('click', async () => {
+  printButton.addEventListener('click', () => {
     if (printExport) {
       printExport.abort();
       return;
     }
+    if (!exporting) openExportDialog(printDialog, printSampling);
+  });
+  $('close-print').addEventListener('click', () => printDialog.close());
+  $('print-form').addEventListener('submit', async event => {
+    event.preventDefault();
     if (exporting) return;
-    pause();
+    printDialog.close();
     exporting = printExport = new AbortController();
     const { signal } = printExport;
     const snapshot = {
       frame,
       camera: camera.clone(),
       effects: { ...effects },
+      dofSamples: chosenDofSamples(printSampling),
       forces: structuredClone(forces),
       emitters: structuredClone(emitters),
     };
@@ -806,9 +838,7 @@ async function start() {
     }
   });
   $('export').addEventListener('click', () => {
-    pause();
-    dirty = true;
-    exportDialog.showModal();
+    openExportDialog(exportDialog, sequenceSampling);
   });
   $('close-export').addEventListener('click', () => {
     if (exporting) exporting.abort();
@@ -835,6 +865,7 @@ async function start() {
     $('start-export').disabled = true;
     $('close-export').textContent = 'Cancel';
     $('export-background').disabled = true;
+    sequenceSampling.disabled = true;
     done.hidden = true;
     progress.value = 0;
     progress.max = frameCount;
@@ -857,6 +888,7 @@ async function start() {
         camera: camera.clone(),
         frameRate: rate,
         effects: { ...effects },
+        dofSamples: chosenDofSamples(sequenceSampling),
         forces: structuredClone(forces),
         emitters: structuredClone(emitters),
         winter: $('export-background').value === 'winter',
@@ -883,6 +915,7 @@ async function start() {
       $('start-export').disabled = false;
       $('close-export').textContent = 'Close';
       $('export-background').disabled = false;
+      sequenceSampling.disabled = false;
       dirty = true;
     }
   });

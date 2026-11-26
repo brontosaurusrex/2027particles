@@ -144,12 +144,34 @@
           <option value="winter">Winter backdrop</option>
         </select>
       </label>
+      <label class="select-row">DOF sampling
+        <select id="sequence-dof-sampling">
+          <option value="preview">Match preview</option>
+          <option value="full" selected>Export quality</option>
+        </select>
+      </label>
       <progress id="export-progress" max="500" value="0" hidden aria-label="Frames rendered"></progress>
       <p id="export-status" role="status" hidden></p>
       <div class="dialog-actions">
         <button type="button" id="close-export">Close</button>
         <button type="submit" id="start-export" class="primary">Export ZIP</button>
         <a id="download" class="primary" download="2027particles.zip" hidden>Download ZIP</a>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="print-dialog" aria-labelledby="print-title">
+    <form id="print-form">
+      <h2 id="print-title">Export print PNG</h2>
+      <p>3840 × 2160 · Transparent · 300 ppi</p>
+      <label class="select-row">DOF sampling
+        <select id="print-dof-sampling">
+          <option value="preview">Match preview</option>
+          <option value="full" selected>Export quality</option>
+        </select>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" id="close-print">Cancel</button>
+        <button type="submit" class="primary">Export PNG</button>
       </div>
     </form>
   </dialog>

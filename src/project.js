@@ -10,8 +10,9 @@ export const MAX_FOCUS_DISTANCE = 300;
 
 const emitterBounds = {
   rate: [0, 400], lifetime: [0.1, 8], lifetimeVariation: [0, 100], size: [MIN_CHIP_SIZE, 0.3], sizeVariation: [0, 150],
-  speed: [0, 10], speedVariation: [0, 100], hueVariation: [0, 180], drawSpeed: [0, 100],
+  speed: [0, 10], speedVariation: [0, 100], launchSpread: [0, 200], hueVariation: [0, 180], drawSpeed: [0, 100],
   smoothing: [0, 100], rotationSpeed: [0, 360], rotationVariation: [0, 100], splitChance: [0, 100],
+  burstSizeVariation: [0, 100], brightnessVariation: [0, 100],
 };
 
 const effectBounds = {
@@ -118,6 +119,7 @@ export function decodeProject(contents) {
   const camera = object(project.camera, 'camera');
   const editor = object(project.editor, 'editor');
   const playback = object(project.playback, 'playback');
+  const sampling = project.exportDofSampling === undefined ? {} : object(project.exportDofSampling, 'DOF sampling');
   const position = vector(camera.position, 3, -1e9, 1e9, 'camera position');
   const target = vector(camera.target, 3, -1e9, 1e9, 'camera target');
   if (position.every((value, axis) => value === target[axis])) invalid('camera position');
@@ -149,5 +151,9 @@ export function decodeProject(contents) {
       playing: boolean(playback.playing, 'playback state'),
     },
     exportBackground: choice(project.exportBackground, ['transparent', 'winter'], 'export background'),
+    exportDofSampling: {
+      print: choice(sampling.print ?? 'full', ['preview', 'full'], 'print DOF sampling'),
+      sequence: choice(sampling.sequence ?? 'full', ['preview', 'full'], 'sequence DOF sampling'),
+    },
   };
 }
