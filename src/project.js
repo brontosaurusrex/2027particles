@@ -77,6 +77,7 @@ function readEmitter(value, legacyTrails) {
     invalid('emitter path');
   }
   const brightness = vector(emitter.brightness ?? DEFAULT_BRIGHTNESS, DEFAULT_BRIGHTNESS.length, 0, 2, 'brightness curve');
+  const palette = ['red', 'green', 'gold'].includes(emitter.palette) ? 'festive' : emitter.palette ?? 'original';
   return {
     id, kind, points,
     muted: boolean(emitter.muted ?? false, 'emitter mute state'),
@@ -85,7 +86,7 @@ function readEmitter(value, legacyTrails) {
       primitive === 'curve' ? 40 : 36, 'emitter position'),
     rotation: vector(emitter.rotation, 3, -360, 360, 'emitter rotation'),
     ...boundedSettings(emitterSettings({ ...legacyTrails, ...emitter, brightness }), emitterBounds, 'emitter'),
-    palette: choice(emitter.palette ?? 'original', Object.keys(PALETTES), 'emitter palette'),
+    palette: choice(palette, Object.keys(PALETTES), 'emitter palette'),
     trailOnly: boolean(emitter.trailOnly ?? false, 'trail only'),
     drawDirection: choice(emitter.drawDirection ?? 'as-drawn',
       ['as-drawn', 'reverse', 'clockwise', 'counterclockwise'], 'draw direction'),

@@ -5,7 +5,8 @@ const luma = [0.2126, 0.7152, 0.0722];
 const gain = 1.45;
 
 export function particleTint(particle) {
-  return (PALETTES[particle.style?.palette] ?? PALETTES.original).tint;
+  const { tints } = PALETTES[particle.style?.palette] ?? PALETTES.original;
+  return tints[particle.tintIndex ?? 0];
 }
 
 export function colorWithPalette(rgb, angle) {

@@ -43,7 +43,7 @@ Split chance gives each particle a chance to burst once partway through its life
 
 Chip size can be set from 0.001 to 0.3. Size variation controls the spread around that size. Set it to 0% for equal-sized chips, 100% for the default mix, or up to 150% for a wider mix.
 
-Hue variation gives each particle from the selected emitter a consistent random color shift. Choose Original, Ferrari Red, Fir Green, or Gold per emitter. A 0° hue range keeps particles, bursts, and trails within that palette.
+Choose Original or the combined Ferrari Red / Fir Green / Gold palette per emitter. Each particle and burst spark picks a base color from its palette. Hue variation shifts that color, and the particle keeps the same color in its glint and trail.
 
 Lines and outlines emit from the moving tip as they draw in. Set Draw speed to 25%/s for a four-second reveal, or to 0%/s for continuous emission along the whole stroke. Use Draw direction to run a line forward or reverse, or trace an outline clockwise or counterclockwise as seen from the front of the emitter.
 

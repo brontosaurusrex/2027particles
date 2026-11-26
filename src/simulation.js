@@ -12,10 +12,11 @@ export const MAX_TRAIL_MS = 6000;
 export const TRAIL_HISTORY = Math.ceil(2 * MAX_TRAIL_MS / (1000 * STEP)) + 1;
 export const TRAIL_DEFAULTS = { trail: 110, trailWidth: 100, trailLengthVariation: 0 };
 export const PALETTES = {
-  original: { label: 'Original', tint: [0, 0, 0] },
-  red: { label: 'Ferrari Red', tint: [1, 0.018, 0.025] },
-  green: { label: 'Fir Green', tint: [0.035, 0.52, 0.14] },
-  gold: { label: 'Gold', tint: [1, 0.56, 0.065] },
+  original: { label: 'Original', tints: [[0, 0, 0]] },
+  festive: {
+    label: 'Ferrari Red / Fir Green / Gold',
+    tints: [[1, 0.018, 0.025], [0.035, 0.52, 0.14], [1, 0.56, 0.065]],
+  },
 };
 const TAU = 2 * Math.PI;
 const DEFAULT_ROTATION_SPEED = 180;
@@ -277,6 +278,12 @@ export class Simulation {
     this.glintSizeRandom = randomSource(this.settings.seed ^ 0x632be59b);
     this.scatterRandom = randomSource(this.settings.seed ^ 0xaa483cc1);
     this.weldingRandom = randomSource(this.settings.seed ^ 0x3859f3a7);
+    this.paletteRandom = randomSource(this.settings.seed ^ 0xec4e6c89);
+  }
+
+  tintIndex(emitter) {
+    const { tints } = PALETTES[emitter.palette] ?? PALETTES.original;
+    return tints.length > 1 ? Math.floor(this.paletteRandom() * tints.length) : 0;
   }
 
   seek(frame) {
@@ -303,6 +310,7 @@ export class Simulation {
         birth, death: birth + 0.4 + 0.35 * random(),
         emitterId: parent.emitterId,
         style: parent.style,
+        tintIndex: this.tintIndex(parent.style),
         brightness: parent.brightness,
         brightnessScale: 1 + (2 * this.fragmentBrightnessRandom() - 1) * parent.brightnessVariation,
         ...particleHistory(parent.position.clone()),
@@ -374,6 +382,7 @@ export class Simulation {
         const particle = {
           emitterId: emitter.id,
           style: emitter,
+          tintIndex: this.tintIndex(emitter),
           birth,
           death: birth + lifetime,
           burstAt: splits ? birth + splitAge : Infinity,
