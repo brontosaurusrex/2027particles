@@ -60,7 +60,7 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; height: calc(
 #reset-view { margin-left: auto; }
 .viewport { position: relative; overflow: hidden; display: grid; place-items: center; container-type: size; background: #0b0d13; }
 .viewport:fullscreen { width: 100%; height: 100%; background: #000; outline: none; }
-.viewport:fullscreen :is(.frame-guide, .viewport-label, .hint) { display: none; }
+.viewport:fullscreen :is(.frame-guide, .viewport-label, .hint, #finish-curve) { display: none; }
 body:has(.viewport:fullscreen) :is(.masthead, .toolbar, .timeline, .inspector) { visibility: hidden; }
 .stage {
   position: relative;
@@ -85,6 +85,7 @@ body:has(.viewport:fullscreen) :is(.masthead, .toolbar, .timeline, .inspector) {
   pointer-events: none;
 }
 .viewport-label { top: 9px; right: 10px; }
+#finish-curve { position: absolute; top: 9px; left: 10px; z-index: 2; }
 .hint { bottom: 9px; left: 10px; margin: 0; max-width: calc(100% - 20px); }
 .timeline { border-top: 1px solid var(--line); }
 #play { min-width: 64px; }

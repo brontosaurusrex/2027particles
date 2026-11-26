@@ -13,6 +13,8 @@ Choose Line, Outline, or Area and drag on the work plane. Change the plane or of
 
 In Outline or Area mode, choose Circle or Square and drag outward from the center. Outline emits around the perimeter. Area emits across the filled shape.
 
+Choose Curve in Line, Outline, or Area mode. Click to place points on the drawing plane. Use Finish curve or Enter to commit it. Backspace removes the last point while drawing, and Escape cancels the curve.
+
 Save project downloads a JSON file with the emitters, camera, forces, trail and blur settings, drawing plane, timeline and export preferences. Load project restores that file in the editor. Project slots hold the same full scene in 20 named slots in your browser. Use Rename to change a slot's name while keeping its saved scene.
 
 Use Fullscreen for a clean animation preview. Drag to orbit or scroll to zoom. Press Space to play or pause and Escape to return to the editor.

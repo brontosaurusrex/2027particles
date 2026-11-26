@@ -1,4 +1,4 @@
-import { Euler, MathUtils, Quaternion, ShapeUtils, Vector2, Vector3 } from 'three/webgpu';
+import { CatmullRomCurve3, Euler, MathUtils, Quaternion, ShapeUtils, Vector2, Vector3 } from 'three/webgpu';
 import { DEFAULT_BRIGHTNESS } from './lifetime.js';
 
 export const FPS = 50;
@@ -63,6 +63,16 @@ export function primitivePoints(shape, [cx, cy], [x, y]) {
     const angle = start + index * TAU / segments;
     return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)];
   });
+}
+
+export function curvePoints(anchors, closed) {
+  if (anchors.length < 3) return anchors;
+  const curve = new CatmullRomCurve3(anchors.map(([x, y]) => new Vector3(x, y, 0)), closed);
+  const segments = closed ? anchors.length : anchors.length - 1;
+  // Use equal subdivisions per section so every clicked anchor lies on the sampled stroke.
+  const points = curve.getPoints(segments * Math.min(24, Math.floor(511 / segments)));
+  if (closed) points.pop();
+  return points.map(({ x, y }) => [x, y]);
 }
 
 // Chaikin corner cutting rounds each corner and keeps open stroke endpoints fixed.

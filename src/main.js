@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createRenderer, WIDTH, HEIGHT } from './renderer.js';
 import {
   EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_TRAIL_MS, MIN_CHIP_SIZE, STEP, Simulation, createEmitter, emitterRotation, polygonFaces,
-  positionOnStroke, primitivePoints, strokeDuration, strokePath, validateStroke,
+  curvePoints, positionOnStroke, primitivePoints, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
 import { chooseDestination, discardDestination, renderArchive, sequenceFrameCount } from './export.js';
 import { renderVectorFrame } from './export-svg.js';
@@ -24,6 +24,7 @@ const hints = {
   area: 'Drag around a region to fill it with births.',
 };
 const planeAngles = { xy: [0, 0, 0], xz: [-90, 0, 0], yz: [0, 90, 0] };
+const MAX_CURVE_ANCHORS = 24;
 
 async function start() {
   const forceWebGL = new URLSearchParams(location.search).get('renderer') === 'webgl';
@@ -56,6 +57,7 @@ async function start() {
   let mode = 'orbit';
   let stroke = null;
   let strokeOrigin;
+  let curveAnchors = [];
   let exporting = null;
   let downloadURL;
   let downloadDestination;
@@ -79,6 +81,7 @@ async function start() {
   const normal = new THREE.Vector3();
   const point = new THREE.Vector3();
   const drawingShape = $('drawing-shape');
+  const finishCurveButton = $('finish-curve');
 
   function setLens(value, keepFraming = false) {
     if (keepFraming) {
@@ -107,6 +110,7 @@ async function start() {
   }
 
   function updatePlane() {
+    discardCurve();
     workPlane.rotation.set(...planeAngles[$('plane').value].map(THREE.MathUtils.degToRad));
     normal.set(0, 0, 1).applyQuaternion(workPlane.quaternion);
     const offset = $('plane-offset');
@@ -165,7 +169,7 @@ async function start() {
         group.add(revealed);
         animatedOutlines.push({ geometry: revealed.geometry, path, duration, tip: 0 });
       }
-      if (emitter.kind === 'area' && (emitter !== stroke || emitter.primitive)) {
+      if (emitter.kind === 'area' && emitter.points.length >= 3 && (emitter !== stroke || emitter.primitive)) {
         const area = new THREE.BufferGeometry().setFromPoints(vertices.slice(0, -1));
         area.setIndex(polygonFaces(emitter.points).flat());
         const fill = new THREE.Mesh(area, new THREE.MeshBasicMaterial({
@@ -175,6 +179,18 @@ async function start() {
         group.add(fill);
       }
       outlines.add(group);
+    }
+    if (stroke?.primitive === 'curve' && curveAnchors.length) {
+      const positions = curveAnchors.flatMap(([x, y]) => [
+        new THREE.Vector3(x - 0.055, y, 0), new THREE.Vector3(x + 0.055, y, 0),
+        new THREE.Vector3(x, y - 0.055, 0), new THREE.Vector3(x, y + 0.055, 0),
+      ]);
+      const markers = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(positions),
+        new THREE.LineBasicMaterial({ color: 0xffdf9a, depthTest: false }));
+      markers.position.set(...stroke.position);
+      markers.quaternion.copy(emitterRotation(stroke));
+      markers.renderOrder = 5;
+      outlines.add(markers);
     }
     dirty = true;
   }
@@ -193,12 +209,17 @@ async function start() {
   }
 
   function setMode(value) {
+    if (mode !== value) discardCurve();
     mode = value;
     const drawing = mode !== 'orbit';
     orbit.enabled = previewFullscreen || !drawing;
     workPlane.visible = drawing;
     outlines.visible = drawing;
-    drawingShape.disabled = mode !== 'outline' && mode !== 'area';
+    drawingShape.disabled = !drawing;
+    for (const primitive of ['circle', 'square']) {
+      drawingShape.querySelector(`[value=${primitive}]`).disabled = mode === 'line';
+    }
+    if (drawingShape.selectedOptions[0]?.disabled) drawingShape.value = 'freehand';
     stage.dataset.draw = String(drawing);
     document.querySelectorAll('[data-mode]').forEach(button =>
       button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
@@ -211,13 +232,17 @@ async function start() {
     const primitiveHints = {
       circle: 'Drag from the center to set the circle radius.',
       square: 'Drag from the center toward a corner to size the square.',
+      curve: 'Click points to draw a curve. Press Enter to finish.',
     };
     $('hint').textContent = primitiveHints[primitive] ?? hints[mode];
   }
 
   document.querySelectorAll('[data-mode]').forEach(button =>
     button.addEventListener('click', () => setMode(button.dataset.mode)));
-  drawingShape.addEventListener('change', showDrawingHint);
+  drawingShape.addEventListener('change', () => {
+    discardCurve();
+    showDrawingHint();
+  });
   $('plane').addEventListener('change', updatePlane);
   $('plane-offset').addEventListener('change', updatePlane);
   $('reset-view').addEventListener('click', () => {
@@ -239,6 +264,7 @@ async function start() {
     if (previewFullscreen === active) return;
     previewFullscreen = active;
     orbit.enabled = active || mode === 'orbit';
+    if (active) discardCurve();
     fullscreen.setAttribute('aria-pressed', String(active));
     (active ? viewport : fullscreen).focus({ preventScroll: true });
     dirty = true;
@@ -248,8 +274,10 @@ async function start() {
   setMode('orbit');
 
   const canvas = renderer.domElement;
+  canvas.tabIndex = -1;
+  finishCurveButton.addEventListener('click', finishCurve);
   canvas.addEventListener('pointerdown', event => {
-    if (previewFullscreen || mode === 'orbit' || stroke || event.button !== 0) return;
+    if (previewFullscreen || mode === 'orbit' || (stroke && stroke.primitive !== 'curve') || event.button !== 0) return;
     if (emitters.length >= EMITTER_LIMIT) {
       $('hint').textContent = `Delete an emitter before adding another. Maximum ${EMITTER_LIMIT}.`;
       return;
@@ -261,22 +289,67 @@ async function start() {
     }
     event.preventDefault();
     pause();
-    showDrawingHint();
-    stroke = createEmitter(nextId, mode, [first], workPlane.position.toArray(),
-      planeAngles[$('plane').value], emitters.at(-1));
-    strokeOrigin = first;
-    if (!drawingShape.disabled && drawingShape.value !== 'freehand') {
-      stroke.primitive = drawingShape.value;
-      stroke.points = [];
+    if (!stroke) {
+      showDrawingHint();
+      stroke = createEmitter(nextId, mode, [first], workPlane.position.toArray(),
+        planeAngles[$('plane').value], emitters.at(-1));
+      if (drawingShape.value !== 'freehand') stroke.primitive = drawingShape.value;
     }
+    if (stroke.primitive === 'curve') {
+      canvas.focus({ preventScroll: true });
+      if (curveAnchors.length >= MAX_CURVE_ANCHORS ||
+          curveAnchors.some(([x, y]) => Math.hypot(first[0] - x, first[1] - y) < 0.047)) return;
+      curveAnchors.push(first);
+      refreshCurve();
+      $('hint').textContent = 'Enter to finish · Backspace to undo a point · Esc to cancel.';
+      return;
+    }
+    strokeOrigin = first;
+    if (stroke.primitive) stroke.points = [];
     canvas.setPointerCapture(event.pointerId);
   });
   canvas.addEventListener('pointermove', event => {
+    if (stroke?.primitive === 'curve') {
+      if (event.pointerType === 'mouse') refreshCurve(strokePoint(event));
+      return;
+    }
     if (!stroke || !canvas.hasPointerCapture(event.pointerId)) return;
     const next = strokePoint(event);
     if (!next) return;
     if (updateStroke(next, 0.047)) updateGuides();
   });
+  canvas.addEventListener('pointerleave', () => {
+    if (stroke?.primitive === 'curve') refreshCurve();
+  });
+
+  function refreshCurve(cursor) {
+    const useCursor = cursor && curveAnchors.length < MAX_CURVE_ANCHORS &&
+      curveAnchors.every(([x, y]) => Math.hypot(cursor[0] - x, cursor[1] - y) >= 0.047);
+    const anchors = useCursor ? [...curveAnchors, cursor] : curveAnchors;
+    stroke.points = curvePoints(anchors, stroke.kind !== 'line');
+    finishCurveButton.hidden = false;
+    finishCurveButton.disabled = curveAnchors.length < (stroke.kind === 'line' ? 2 : 3);
+    updateGuides();
+  }
+
+  function resetStroke() {
+    stroke = null;
+    curveAnchors = [];
+    finishCurveButton.hidden = true;
+  }
+
+  function discardCurve() {
+    if (stroke?.primitive !== 'curve') return;
+    resetStroke();
+    showDrawingHint();
+    updateGuides();
+  }
+
+  function finishCurve() {
+    if (stroke?.primitive !== 'curve' || finishCurveButton.disabled) return;
+    refreshCurve();
+    commitStroke(true);
+  }
 
   function updateStroke(next, spacing) {
     if (stroke.primitive) {
@@ -290,7 +363,7 @@ async function start() {
   }
 
   canvas.addEventListener('pointerup', event => {
-    if (!stroke || !canvas.hasPointerCapture(event.pointerId)) return;
+    if (!stroke || stroke.primitive === 'curve' || !canvas.hasPointerCapture(event.pointerId)) return;
     const next = strokePoint(event);
     if (next) updateStroke(next, 0.025);
     if (!stroke.primitive && stroke.kind !== 'line' && stroke.points.length > 2) {
@@ -298,9 +371,14 @@ async function start() {
       const end = stroke.points.at(-1);
       if (Math.hypot(end[0] - first[0], end[1] - first[1]) < 0.12) stroke.points.pop();
     }
+    commitStroke();
+  });
+
+  function commitStroke(keepOnError = false) {
     const issue = validateStroke(stroke.kind, stroke.points);
     if (issue) {
       $('hint').textContent = issue;
+      if (keepOnError) return;
     } else {
       nextId++;
       const count = stroke.points.length;
@@ -311,13 +389,14 @@ async function start() {
       selected = stroke;
       updateInspector();
       invalidateSimulation();
+      showDrawingHint();
     }
-    stroke = null;
+    resetStroke();
     updateGuides();
-  });
+  }
   canvas.addEventListener('lostpointercapture', () => {
-    if (!stroke) return;
-    stroke = null;
+    if (!stroke || stroke.primitive === 'curve') return;
+    resetStroke();
     updateGuides();
   });
 
@@ -481,6 +560,20 @@ async function start() {
       document.exitFullscreen().catch(() => {});
       return;
     }
+    if (stroke?.primitive === 'curve' && event.target === canvas) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        finishCurve();
+      } else if (event.key === 'Backspace') {
+        event.preventDefault();
+        curveAnchors.pop();
+        if (curveAnchors.length) refreshCurve();
+        else discardCurve();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        discardCurve();
+      }
+    }
     if (event.code !== 'Space' || $('export-dialog').open || $('slots-dialog').open ||
         (!previewFullscreen && event.target !== document.body)) return;
     event.preventDefault();
@@ -636,7 +729,7 @@ async function start() {
     $('winter').checked = winter;
     exportBackground.value = project.exportBackground;
 
-    stroke = null;
+    resetStroke();
     emitters.splice(0, emitters.length, ...project.emitters);
     selected = emitters.find(emitter => emitter.id === project.selectedEmitterId);
     nextId = project.nextEmitterId;

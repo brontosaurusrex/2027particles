@@ -63,10 +63,11 @@ function readEmitter(value) {
   const id = integer(emitter.id, 1, Number.MAX_SAFE_INTEGER - 1, 'emitter ID');
   const kind = choice(emitter.kind, ['line', 'outline', 'area'], 'emitter type');
   const primitive = emitter.primitive === undefined ? undefined :
-    choice(emitter.primitive, ['circle', 'square'], 'emitter shape');
-  if (primitive && kind === 'line') invalid('emitter shape');
+    choice(emitter.primitive, ['curve', 'circle', 'square'], 'emitter shape');
+  if (primitive && primitive !== 'curve' && kind === 'line') invalid('emitter shape');
   if (!Array.isArray(emitter.points) || emitter.points.length > 512) invalid('emitter path');
-  const points = emitter.points.map(point => vector(point, 2, -72, 72, 'emitter point'));
+  const limit = primitive === 'curve' ? 90 : 72;
+  const points = emitter.points.map(point => vector(point, 2, -limit, limit, 'emitter point'));
   if (validateStroke(kind, points) || !points.some(([x, y]) => x !== points[0][0] || y !== points[0][1])) {
     invalid('emitter path');
   }
@@ -74,7 +75,8 @@ function readEmitter(value) {
   return {
     id, kind, points,
     ...(primitive ? { primitive } : {}),
-    position: vector(emitter.position, 3, -36, 36, 'emitter position'),
+    position: vector(emitter.position, 3, primitive === 'curve' ? -40 : -36,
+      primitive === 'curve' ? 40 : 36, 'emitter position'),
     rotation: vector(emitter.rotation, 3, -360, 360, 'emitter rotation'),
     ...boundedSettings(emitterSettings({ ...emitter, brightness }), emitterBounds, 'emitter'),
     brightness,
@@ -137,7 +139,7 @@ export function decodeProject(contents) {
       mode: choice(editor.mode, ['orbit', 'line', 'outline', 'area'], 'drawing mode'),
       plane: choice(editor.plane, ['xy', 'xz', 'yz'], 'drawing plane'),
       planeOffset: number(editor.planeOffset, -12, 12, 'drawing plane offset'),
-      drawingShape: choice(editor.drawingShape ?? 'freehand', ['freehand', 'circle', 'square'], 'drawing shape'),
+      drawingShape: choice(editor.drawingShape ?? 'freehand', ['freehand', 'curve', 'circle', 'square'], 'drawing shape'),
       previewQuality: choice(editor.previewQuality ?? 'auto', ['auto', 'full'], 'preview quality'),
       frameRate: choice(editor.frameRate ?? FPS, [25, FPS], 'frame rate'),
     },
