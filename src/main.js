@@ -39,7 +39,7 @@ async function start() {
   const orbit = new OrbitControls(camera, renderer.domElement);
 
   const forces = { gravity: 2.2, wind: [0.35, 0, -0.20], turbulence: 0.90, drag: 1.5, seed: 2027 };
-  const effects = { depth: 1, shutter: 90, focus: 9.6, dofMode: 'blur' };
+  const effects = { depth: 1, shutter: 90, focus: 9.6 };
   const demo = createEmitter(1, 'line', [
     [-2.4, -0.36], [-1.7, -0.12], [-1.05, 0.15], [-0.45, 0.22], [0.2, 0.17],
     [0.85, -0.01], [1.6, -0.25], [2.35, -0.54],
@@ -628,7 +628,7 @@ async function start() {
   const effectFields = settingsRanges(cameraPanel, effects, [
     ['depth', 'Depth of field', 0, 5, 0.1],
   ], () => { dirty = true; });
-  effectFields[0].input.title = 'Controls the strength of Blur or Dim away from the focus distance.';
+  effectFields[0].input.title = 'Controls the blur away from the focus distance.';
   const shutterField = range(cameraPanel, 'Shutter angle', 0, 360, 1, effects.shutter, value => {
     effects.shutter = value;
     syncShutterReadout();
@@ -659,10 +659,6 @@ async function start() {
   $('black-preview').addEventListener('change', event => {
     black = event.target.checked;
     if (black) winter = $('winter').checked = false;
-    dirty = true;
-  });
-  $('dof-mode').addEventListener('change', event => {
-    effects.dofMode = event.target.value;
     dirty = true;
   });
   updateInspector();
@@ -810,7 +806,7 @@ async function start() {
     const full = previewQuality.value === 'full';
     const adaptive = playing && !full;
     const [scale, sampleCount] = profiles[adaptive ? quality : 0];
-    const previewSamples = effects.dofMode === 'blur' && effects.depth >= 2.5 ? (playing ? sampleCount * 2 : 16) : sampleCount;
+    const previewSamples = effects.depth >= 2.5 ? (playing ? sampleCount * 2 : 16) : sampleCount;
     const maxWidth = full ? WIDTH * 2 : WIDTH;
     const pixelRatio = full ? devicePixelRatio : Math.min(devicePixelRatio, 1.5);
     const width = Math.max(128, Math.round(Math.min(stage.clientWidth * pixelRatio, maxWidth) * scale));
@@ -873,7 +869,7 @@ async function start() {
 
   function openExportDialog(dialog, select) {
     previewSamplesAtOpen = lastPreviewSamples;
-    select.closest('label').hidden = effects.depth === 0 || effects.dofMode === 'dim';
+    select.closest('label').hidden = effects.depth === 0;
     select.querySelector('[value="preview"]').textContent =
       `Match preview (${previewSamplesAtOpen} samples)`;
     pause();
@@ -953,7 +949,6 @@ async function start() {
     forces.wind.splice(0, 3, ...wind);
     Object.assign(effects, project.effects);
     shutterField.setValue(effects.shutter);
-    $('dof-mode').value = effects.dofMode;
     forceFields.forEach(field => field.sync());
     seedField.setValue(forces.seed);
     effectFields.forEach(field => field.sync());

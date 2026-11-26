@@ -9,7 +9,7 @@ const PRINT_HEIGHT = HEIGHT * 2;
 const PRINT_PPI = 300;
 
 function exportSamples(snapshot) {
-  return snapshot.effects.depth > 0 && snapshot.effects.dofMode !== 'dim' ? (snapshot.dofSamples ?? FULL_DOF_SAMPLES) : 16;
+  return snapshot.effects.depth > 0 ? (snapshot.dofSamples ?? FULL_DOF_SAMPLES) : 16;
 }
 
 export async function renderPrintFrame(view, snapshot, signal, onProgress) {

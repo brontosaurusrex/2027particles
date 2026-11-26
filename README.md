@@ -49,15 +49,15 @@ Lines and outlines emit from the moving tip as they draw in. Set Draw speed to 2
 
 Use Smoothing on a line or outline to round its corners. New emitters start with the most recently drawn emitter's settings. An old emitter preset opens in a starter scene, where it can be saved as a full project.
 
-Export SVG frame saves the current camera and timeline frame as editable paths and gradients with a transparent background. The SVG includes the chips, glints, and motion trails. Use PNG or MOV export for lens blur and shutter blur. Dim depth of field works in SVG too.
+Export SVG frame saves the current camera and timeline frame as editable paths and gradients with a transparent background. The SVG includes the chips, glints, and motion trails. Use PNG or MOV export for lens blur and shutter blur.
 
 Print PNG renders the current frame as a 3840 × 2160 PNG with a transparent or black background, with 300 ppi metadata, depth of field, and shutter blur. At 300 ppi, the full 16:9 frame prints at approximately 32.5 × 18.3 cm.
 
-When Blur depth of field is enabled, export dialogs let you match the sample count of the last displayed preview frame or choose Export quality at 24 samples.
+When depth of field is enabled, export dialogs let you match the sample count of the last displayed preview frame or choose Export quality at 24 samples.
 
 Increase Air drag under Forces to slow particles throughout their flight and keep wind and turbulence from carrying them as far.
 
-The 25–200 mm full-frame focal length control moves the camera along its viewing axis to keep the orbit target at the same apparent size. Focus distance sets the sharp plane independently of the camera position. Choose Blur to soften particles away from that plane or Dim to darken them while retaining sharp edges.
+The 25–200 mm full-frame focal length control moves the camera along its viewing axis to keep the orbit target at the same apparent size. Focus distance sets the sharp plane independently of the camera position. Depth of field softens particles away from that plane.
 
 Shutter angle controls exposure as a fraction of a frame. At 90° the exposure is 5 ms at 50 fps or 10 ms at 25 fps. Export animation can create a ZIP of 1920 × 1080 PNGs with a transparent, black, or winter background. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.
 

@@ -39,7 +39,6 @@ class ParticleRenderer {
     this.sampleCamera = this.camera.clone();
     this.object = new THREE.Object3D();
     this.spinAxis = new THREE.Vector3();
-    this.effectPosition = new THREE.Vector3();
 
     const mainLight = new THREE.DirectionalLight(0xffe1a7, 3.6);
     mainLight.position.set(-4, 6, 4);
@@ -145,13 +144,9 @@ class ParticleRenderer {
       const lifeScale = Math.min(1, (lifetime - age) * 7 + 0.12);
       const lifeProgress = age / lifetime;
       const opacity = THREE.MathUtils.smoothstep(1 - lifeProgress, 0, 0.75);
-      let brightness = brightnessAt(particle.brightness ?? DEFAULT_BRIGHTNESS, lifeProgress) * particle.brightnessScale;
+      const brightness = brightnessAt(particle.brightness ?? DEFAULT_BRIGHTNESS, lifeProgress) * particle.brightnessScale;
       const angle = particle.hue ?? 0;
       object.position.lerpVectors(particle.previous, particle.position, fraction);
-      if (effects.dofMode === 'dim' && effects.depth > 0) {
-        const depth = -this.effectPosition.copy(object.position).applyMatrix4(camera.matrixWorldInverse).z;
-        brightness *= Math.exp(-effects.depth * Math.abs(depth - effects.focus) / effects.focus);
-      }
       trails.add(particle, object.position, time, lifeScale, opacity, brightness);
       if (particle.style?.trailOnly) return;
       object.rotation.set(...rotation);
@@ -220,10 +215,9 @@ class ParticleRenderer {
   draw(simulation, frame, camera, settings, width, height, options) {
     const { renderer, samples, accumulation, sky, output } = this;
     const { exporting, sampleCount, winter, black, overlay, frameRate = FPS } = options;
-    const blur = settings.dofMode !== 'dim' && settings.depth;
-    const count = blur || settings.shutter ? sampleCount : 1;
+    const count = settings.depth || settings.shutter ? sampleCount : 1;
     const focus = Math.max(camera.near * 2, settings.focus);
-    const aperture = focus * blur * 0.007;
+    const aperture = focus * settings.depth * 0.007;
     const exposure = settings.shutter / (360 * frameRate);
     if (!exporting && (renderer.domElement.width !== width || renderer.domElement.height !== height)) {
       renderer.setSize(width, height, false);

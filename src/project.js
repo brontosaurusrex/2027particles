@@ -145,10 +145,7 @@ export function decodeProject(contents) {
       wind: vector(forces.wind, 3, -8, 8, 'wind'),
       seed: integer(forces.seed, 0, 4294967295, 'seed'),
     },
-    effects: {
-      ...boundedSettings(effects, effectBounds, 'camera effect'),
-      dofMode: choice(effects.dofMode ?? 'blur', ['blur', 'dim'], 'DOF mode'),
-    },
+    effects: boundedSettings(effects, effectBounds, 'camera effect'),
     camera: {
       position, target,
       focalLength: number(camera.focalLength, ...FOCAL_LENGTH_BOUNDS, 'focal length'),
