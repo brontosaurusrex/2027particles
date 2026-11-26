@@ -7,12 +7,13 @@ const MAX_FILE_BYTES = 4 * 1024 * 1024;
 export const DEFAULT_FOCAL_LENGTH = 26;
 export const FOCAL_LENGTH_BOUNDS = [25, 200];
 export const MAX_FOCUS_DISTANCE = 300;
+export const LEGACY_SPARKLE_AMOUNT = 46;
 
 const emitterBounds = {
   rate: [0, 400], lifetime: [0.1, 8], lifetimeVariation: [0, 100], size: [MIN_CHIP_SIZE, 0.3], sizeVariation: [0, 150],
   speed: [0, 10], speedVariation: [0, 100], launchSpread: [0, 200], hueVariation: [0, 180], drawSpeed: [0, 100],
   smoothing: [0, 100], rotationSpeed: [0, 360], rotationVariation: [0, 100], splitChance: [0, 100],
-  burstSizeVariation: [0, 100], brightnessVariation: [0, 100],
+  burstSizeVariation: [0, 100], brightnessVariation: [0, 100], sparkleAmount: [0, 100],
 };
 
 const effectBounds = {
@@ -73,13 +74,14 @@ function readEmitter(value) {
     invalid('emitter path');
   }
   const brightness = vector(emitter.brightness ?? DEFAULT_BRIGHTNESS, DEFAULT_BRIGHTNESS.length, 0, 2, 'brightness curve');
+  const { sparkleAmount = LEGACY_SPARKLE_AMOUNT } = emitter;
   return {
     id, kind, points,
     ...(primitive ? { primitive } : {}),
     position: vector(emitter.position, 3, primitive === 'curve' ? -40 : -36,
       primitive === 'curve' ? 40 : 36, 'emitter position'),
     rotation: vector(emitter.rotation, 3, -360, 360, 'emitter rotation'),
-    ...boundedSettings(emitterSettings({ ...emitter, brightness }), emitterBounds, 'emitter'),
+    ...boundedSettings(emitterSettings({ ...emitter, brightness, sparkleAmount }), emitterBounds, 'emitter'),
     brightness,
   };
 }

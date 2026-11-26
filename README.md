@@ -27,6 +27,8 @@ Each emitter has its own launch Speed variation and Launch spread. Set spread to
 
 Drag the points on the Lifetime brightness curve or enter brightness percentages at the five ages. Brightness variation makes individual particles and sparks dimmer or brighter across the whole curve. Particles become more transparent near the end of their lives.
 
+Sparkle amount controls how many particles and burst sparks can briefly flash with a star-shaped glint. Glints vary in size from particle to particle. The slider starts at 0% in the starter scene. Older projects load with 46%, which matches their original flash frequency.
+
 Every emitter uses a mix of ♥ hearts, ★ stars, ❄ snowflakes, ● solid circles, ✚ plus signs, ✦ sparkles, ✿ flowers, ⚡ lightning bolts, and ○ rings. Solid circles appear twice as often as each other shape.
 
 Rotation speed sets the tumble rate in degrees per second. Rotation variation spreads that rate above and below the selected speed. Set speed to 0°/s to hold each particle's starting orientation.

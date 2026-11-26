@@ -1,4 +1,4 @@
-import { decodeProject, encodeProject } from './project.js';
+import { LEGACY_SPARKLE_AMOUNT, decodeProject, encodeProject } from './project.js';
 import { emitterSettings } from './simulation.js';
 
 const SLOT_COUNT = 20;
@@ -42,7 +42,7 @@ export function mountProjectSlots(dialog, open, captureProject, restoreProject, 
       const value = JSON.parse(localStorage.getItem(`${LEGACY_KEY}.${slotNumber(index)}`));
       if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
       const draft = structuredClone(starterProject);
-      Object.assign(draft.emitters[0], emitterSettings(value));
+      Object.assign(draft.emitters[0], emitterSettings({ sparkleAmount: LEGACY_SPARKLE_AMOUNT, ...value }));
       return decodeProject(encodeProject(draft));
     } catch {
       return null;

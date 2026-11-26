@@ -429,6 +429,7 @@ async function start() {
       ['Launch spread', 'launchSpread', 0, 200, 1, '%', '0% is a jet. 100% is the default spread.'],
       ['Hue variation', 'hueVariation', 0, 180, 1, '°'],
       ['Brightness variation', 'brightnessVariation', 0, 100, 1, '%', 'Varies the brightness of each particle across its lifetime.'],
+      ['Sparkle amount', 'sparkleAmount', 0, 100, 1, '%', 'Controls how many particles and burst sparks can flash with a star-shaped glint.'],
       ['Rotation speed', 'rotationSpeed', 0, 360, 1, '°/s'],
       ['Rotation variation', 'rotationVariation', 0, 100, 1, '%'],
       ['Split chance', 'splitChance', 0, 100, 1, '%'],

@@ -156,9 +156,9 @@ class ParticleRenderer {
       mesh.setColorAt(index, GOLD[particle.shade]);
       mesh.geometry.attributes.lifetimeAppearance.setXYZ(index, opacity, brightness, angle);
 
-      const pulse = Math.max(0, Math.sin(particle.phase + age * particle.flashRate));
-      if (particle.glint && pulse > 0.79) {
-        const size = particle.size * lifeScale * (pulse - 0.70) * 7;
+      const pulse = particle.glint ? Math.sin(particle.phase + age * particle.flashRate) : 0;
+      if (pulse > 0.79) {
+        const size = particle.size * particle.glintSizeScale * lifeScale * (pulse - 0.70) * 7;
         object.position.applyMatrix4(camera.matrixWorldInverse);
         object.position.z += particle.size * 0.76;
         object.position.applyMatrix4(camera.matrixWorld);

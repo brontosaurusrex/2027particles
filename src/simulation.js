@@ -14,6 +14,7 @@ const DEFAULT_ROTATION_SPEED = 180;
 const DEFAULT_ROTATION_VARIATION = 50;
 const DEFAULT_LIFETIME_VARIATION = 28;
 const BURST_SIZE = 6;
+const BURST_GLINT_BOOST = 0.7 / 0.46;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 export function randomSource(seed) {
@@ -32,12 +33,12 @@ export function emitterSettings(source = {}) {
     size = 0.085, sizeVariation = 100, speed = 2.6, speedVariation = 25, launchSpread = 100,
     hueVariation = 0, drawSpeed = 25, smoothing = 0, brightness = DEFAULT_BRIGHTNESS, brightnessVariation = 0,
     rotationSpeed = DEFAULT_ROTATION_SPEED, rotationVariation = DEFAULT_ROTATION_VARIATION,
-    splitChance = 0, burstSizeVariation = 0,
+    splitChance = 0, burstSizeVariation = 0, sparkleAmount = 0,
   } = source;
   return {
     rate, lifetime, lifetimeVariation, size, sizeVariation, speed, speedVariation, launchSpread, hueVariation,
     drawSpeed, smoothing, rotationSpeed, rotationVariation, splitChance, burstSizeVariation,
-    brightness: [...brightness], brightnessVariation,
+    brightness: [...brightness], brightnessVariation, sparkleAmount,
   };
 }
 
@@ -233,6 +234,7 @@ export class Simulation {
     this.burstCountRandom = randomSource(this.settings.seed ^ 0xd3a2646c);
     this.brightnessRandom = randomSource(this.settings.seed ^ 0xfd7046c5);
     this.fragmentBrightnessRandom = randomSource(this.settings.seed ^ 0x94d049bb);
+    this.glintSizeRandom = randomSource(this.settings.seed ^ 0x632be59b);
   }
 
   seek(frame) {
@@ -247,6 +249,7 @@ export class Simulation {
     const colorOffset = TAU * random();
     const shapes = this.uniqueShapes.filter(shape => shape !== parent.shape);
     const spin = Math.hypot(...parent.spin);
+    const glintChance = Math.min(1, parent.glintChance * BURST_GLINT_BOOST);
     for (let index = 0; index < burstCount; index++) {
       const z = (2 * (index + 0.5)) / burstCount - 1;
       const radius = Math.sqrt(1 - z * z);
@@ -266,7 +269,8 @@ export class Simulation {
         size: parent.size * (0.4 + 0.22 * random()),
         phase: random() * TAU,
         flashRate: 10 + 12 * random(),
-        glint: random() < 0.7,
+        glint: random() < glintChance,
+        glintSizeScale: 0.75 + 0.5 * this.glintSizeRandom(),
         shape, shade: parent.shade, hue: (colorOffset + index * TAU / burstCount + parent.hue) % TAU,
       });
     }
@@ -291,6 +295,7 @@ export class Simulation {
       const launchSpread = (emitter.launchSpread ?? 100) / 100;
       const launchDirection = launchSpread === 1 ? null : new Vector3(0, 0.66, 0).addScaledVector(emitter.normal, 0.525);
       const brightnessVariation = (emitter.brightnessVariation ?? 0) / 100;
+      const glintChance = (emitter.sparkleAmount ?? 0) / 100;
       const burstSizeVariation = (emitter.burstSizeVariation ?? 0) / 100;
       const minBurstCount = BURST_SIZE - Math.round(4 * burstSizeVariation);
       const maxBurstCount = BURST_SIZE + Math.round(2 * burstSizeVariation);
@@ -330,7 +335,9 @@ export class Simulation {
           size: emitter.size * MathUtils.lerp(1, 0.38 + 0.95 * random() ** 2, sizeVariation),
           phase: random() * TAU,
           flashRate: 6 + 14 * random(),
-          glint: random() < 0.46,
+          glint: random() < glintChance,
+          glintChance,
+          glintSizeScale: 0.75 + 0.5 * this.glintSizeRandom(),
           shape: this.shapeChoices[Math.floor(random() * this.shapeChoices.length)],
           shade: Math.floor(random() * 5),
           hue: (this.hueRandom() * 2 - 1) * hueRange,
