@@ -266,18 +266,19 @@ class ParticleRenderer {
   }
 
   async readImage() {
-    const pixels = await this.renderer.readRenderTargetPixelsAsync(this.output, 0, 0, WIDTH, HEIGHT);
+    const { width, height } = this.output;
+    const pixels = await this.renderer.readRenderTargetPixelsAsync(this.output, 0, 0, width, height);
     if (this.isWebGL) {
-      const stride = WIDTH * 4;
+      const stride = width * 4;
       const rowData = new Uint8Array(stride);
-      for (let row = 0; row < HEIGHT / 2; row++) {
+      for (let row = 0; row < Math.floor(height / 2); row++) {
         const top = row * stride;
-        const bottom = (HEIGHT - 1 - row) * stride;
+        const bottom = (height - 1 - row) * stride;
         rowData.set(pixels.subarray(top, top + stride));
         pixels.copyWithin(top, bottom, bottom + stride);
         pixels.set(rowData, bottom);
       }
     }
-    return new ImageData(new Uint8ClampedArray(pixels.buffer), WIDTH, HEIGHT);
+    return new ImageData(new Uint8ClampedArray(pixels.buffer), width, height);
   }
 }

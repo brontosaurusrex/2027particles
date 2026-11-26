@@ -4,9 +4,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createRenderer, WIDTH, HEIGHT } from './renderer.js';
 import {
   EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_TRAIL_MS, MIN_CHIP_SIZE, STEP, Simulation, createEmitter, emitterRotation, polygonFaces,
-  curvePoints, positionOnStroke, primitivePoints, strokeDuration, strokePath, validateStroke,
+  curvePoints, emitterSettings, positionOnStroke, primitivePoints, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
-import { chooseDestination, discardDestination, renderArchive, sequenceFrameCount } from './export.js';
+import { chooseDestination, discardDestination, renderArchive, renderPrintFrame, sequenceFrameCount } from './export.js';
 import { renderVectorFrame } from './export-svg.js';
 import { mountBrightnessEditor } from './brightness-editor.js';
 import { mountProjectSlots } from './project-slots.js';
@@ -25,6 +25,7 @@ const hints = {
 };
 const planeAngles = { xy: [0, 0, 0], xz: [-90, 0, 0], yz: [0, 90, 0] };
 const MAX_CURVE_ANCHORS = 24;
+const emitterDefaults = emitterSettings();
 
 async function start() {
   const forceWebGL = new URLSearchParams(location.search).get('renderer') === 'webgl';
@@ -59,6 +60,7 @@ async function start() {
   let strokeOrigin;
   let curveAnchors = [];
   let exporting = null;
+  let printExport = null;
   let downloadURL;
   let downloadDestination;
 
@@ -430,12 +432,12 @@ async function start() {
       range(emission, label, min, max, step, selected[key], value => {
         selected[key] = value;
         invalidateSimulation();
-      }, suffix);
+      }, suffix, emitterDefaults[key]);
     }
     const { input: variation } = range(emission, 'Speed variation', 0, 100, 1, selected.speedVariation, value => {
       selected.speedVariation = value;
       invalidateSimulation();
-    }, '%');
+    }, '%', emitterDefaults.speedVariation);
     variation.title = 'Random variation above and below the launch speed.';
     if (selected.kind !== 'area') {
       if (!selected.primitive) {
@@ -443,13 +445,13 @@ async function start() {
           selected.smoothing = value;
           updateGuides();
           invalidateSimulation();
-        }, '%');
+        }, '%', emitterDefaults.smoothing);
       }
       const { input } = range(emission, 'Draw speed', 0, 100, 0.5, selected.drawSpeed, value => {
         selected.drawSpeed = value;
         updateGuides();
         invalidateSimulation();
-      }, '%/s');
+      }, '%/s', emitterDefaults.drawSpeed);
       input.title = 'Percentage of the stroke revealed per second. Set to 0 for continuous emission along the whole stroke.';
     }
     const transform = $('transform');
@@ -550,7 +552,9 @@ async function start() {
   const togglePlayback = () => playing ? pause() : play();
   $('play').addEventListener('click', togglePlayback);
   const loop = $('loop');
-  $('timeline').addEventListener('input', event => { pause(); seek(Number(event.target.value)); });
+  const timeline = $('timeline');
+  timeline.addEventListener('input', event => { pause(); seek(Number(event.target.value)); });
+  resetSliderOnRightClick(timeline, timeline.min);
   $('previous').addEventListener('click', () => { pause(); seek(frame - 1); });
   $('next').addEventListener('click', () => { pause(); seek(frame + 1); });
   $('restart').addEventListener('click', () => { seek(1); play(); });
@@ -664,6 +668,7 @@ async function start() {
   const progress = $('export-progress');
   const exportStatus = $('export-status');
   const done = $('download');
+  const printButton = $('export-print');
   const exportBackground = $('export-background');
   const projectFile = $('project-file');
   const projectStatus = $('project-status');
@@ -763,6 +768,42 @@ async function start() {
       dirty = true;
     }
   });
+  printButton.addEventListener('click', async () => {
+    if (printExport) {
+      printExport.abort();
+      return;
+    }
+    if (exporting) return;
+    pause();
+    exporting = printExport = new AbortController();
+    const { signal } = printExport;
+    const snapshot = {
+      frame,
+      camera: camera.clone(),
+      effects: { ...effects },
+      forces: structuredClone(forces),
+      emitters: structuredClone(emitters),
+    };
+    $('export-svg').disabled = $('export').disabled = true;
+    printButton.textContent = 'Cancel print';
+    try {
+      const png = await renderPrintFrame(view, snapshot, signal, (completed, total) => {
+        printButton.textContent = `Cancel print (${completed}/${total})`;
+      });
+      signal.throwIfAborted();
+      downloadFile(png, 'image/png', `frame_${String(snapshot.frame).padStart(4, '0')}_print.png`);
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        $('hint').textContent = 'Could not export the print PNG.';
+        console.error(error);
+      }
+    } finally {
+      exporting = printExport = null;
+      printButton.textContent = 'Print PNG';
+      $('export-svg').disabled = $('export').disabled = false;
+      dirty = true;
+    }
+  });
   $('export').addEventListener('click', () => {
     pause();
     dirty = true;
@@ -857,6 +898,7 @@ async function start() {
   ready = true;
   $('export').disabled = false;
   $('export-svg').disabled = false;
+  printButton.disabled = false;
   $('save-project').disabled = false;
   $('load-project').disabled = false;
   $('project-slots').disabled = false;
@@ -864,7 +906,8 @@ async function start() {
 }
 
 function downloadFile(contents, type, name) {
-  const url = URL.createObjectURL(new Blob([contents], { type }));
+  const file = contents instanceof Blob ? contents : new Blob([contents], { type });
+  const url = URL.createObjectURL(file);
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
@@ -896,7 +939,15 @@ function makeField(container, className, label) {
   return { row, input };
 }
 
-function range(container, label, min, max, step, value, onChange, suffix = '') {
+function resetSliderOnRightClick(input, defaultValue) {
+  input.addEventListener('contextmenu', event => {
+    event.preventDefault();
+    input.value = defaultValue;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+function range(container, label, min, max, step, value, onChange, suffix = '', defaultValue = value) {
   const { row, input } = makeField(container, 'range-row', label);
   Object.assign(input, { type: 'range', min, max, step, value });
   const output = document.createElement('output');
@@ -907,6 +958,7 @@ function range(container, label, min, max, step, value, onChange, suffix = '') {
     updateReadout();
     onChange(input.valueAsNumber);
   });
+  resetSliderOnRightClick(input, defaultValue);
   return {
     input,
     setValue(next) {

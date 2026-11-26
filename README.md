@@ -17,6 +17,8 @@ Choose Curve in Line, Outline, or Area mode. Click to place points on the drawin
 
 Save project downloads a JSON file with the emitters, camera, forces, trail and blur settings, drawing plane, timeline and export preferences. Load project restores that file in the editor. Project slots hold the same full scene in 20 named slots in your browser. Use Rename to change a slot's name while keeping its saved scene.
 
+Right-click a slider to reset it to its default value.
+
 Use Fullscreen for a clean animation preview. Drag to orbit or scroll to zoom. Press Space to play or pause and Escape to return to the editor.
 
 Under Preview, choose Auto to adapt resolution during playback or Full resolution to use native display pixels up to 3840 × 2160. Frame rate controls playback and PNG export. Both rates play the same ten-second timeline. Export produces 250 frames at 25 fps or 500 frames at 50 fps.
@@ -38,6 +40,8 @@ Lines and outlines emit from the moving tip as they draw in. Set Draw speed to 2
 Use Smoothing on a line or outline to round its corners. New emitters start with the most recently drawn emitter's settings. An old emitter preset opens in a starter scene, where it can be saved as a full project.
 
 Export SVG frame saves the current camera and timeline frame as editable paths and gradients with a transparent background. The SVG includes the chips, glints, and motion trails. Use PNG export for the winter photo, depth of field, and shutter blur.
+
+Print PNG renders the current frame as a transparent 3840 × 2160 PNG, with 300 ppi metadata, depth of field, and shutter blur. At 300 ppi, the full 16:9 frame prints at approximately 32.5 × 18.3 cm.
 
 Increase Air drag under Forces to slow particles throughout their flight and keep wind and turbulence from carrying them as far.
 
