@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { attribute, mix, output, renderOutput, texture, uniform, uv, vec4 } from 'three/tsl';
+import { attribute, mix, output, renderOutput, texture, uniform, uv, vec2, vec4 } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { chipGeometries } from './chips.js';
 import { CAPACITY, FPS, STEP } from './simulation.js';
@@ -17,6 +17,13 @@ function setLifetimeAppearance(material) {
   material.opacityNode = appearance.x;
   material.outputNode = vec4(colorWithPalette(output.rgb, appearance.z).mul(appearance.y), output.a);
   return material;
+}
+
+function compositeQuad(fragment) {
+  const material = new THREE.NodeMaterial();
+  material.setValues({ depthTest: false, depthWrite: false });
+  material.fragmentNode = fragment;
+  return new THREE.QuadMesh(material);
 }
 
 export async function createRenderer(stage, forceWebGL) {
@@ -101,12 +108,35 @@ class ParticleRenderer {
     const displayColor = renderOutput(vec4(linear, mix(alpha, 1, opaque)), THREE.ACESFilmicToneMapping, THREE.SRGBColorSpace);
     // PNG stores straight RGB and alpha. The transparent branch has already divided out alpha.
     displayColor.premultipliedAlpha = false;
-    const compositeMaterial = new THREE.NodeMaterial();
-    compositeMaterial.setValues({ depthTest: false, depthWrite: false });
-    compositeMaterial.fragmentNode = displayColor;
-    this.composite = new THREE.QuadMesh(compositeMaterial);
+    this.composite = compositeQuad(displayColor);
+    this.referenceDarkening = uniform(0);
 
     this.skyKey = '';
+  }
+
+  setReferenceImage(image) {
+    this.reference?.texture.dispose();
+    this.reference?.quad.material.dispose();
+    this.reference = null;
+    if (!image) return;
+
+    const map = new THREE.CanvasTexture(image);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.flipY = false;
+    map.generateMipmaps = false;
+    map.minFilter = THREE.LinearFilter;
+    const aspect = (image.width / image.height) / (WIDTH / HEIGHT);
+    const fit = vec2(Math.min(1, aspect), Math.min(1, 1 / aspect));
+    const imagePoint = uv().sub(0.5).div(fit);
+    const inside = imagePoint.x.abs().lessThanEqual(0.5).and(imagePoint.y.abs().lessThanEqual(0.5));
+    const reference = texture(map, imagePoint.add(0.5));
+    const particles = texture(this.accumulation.texture);
+    const foreground = particles.toneMapping(THREE.ACESFilmicToneMapping).rgb;
+    const opacity = particles.a.clamp(0, 1);
+    const background = reference.rgb.mul(reference.a).mul(this.referenceDarkening.oneMinus());
+    const rgb = foreground.add(background.mul(inside.select(1, 0)).mul(opacity.oneMinus()));
+    const display = renderOutput(vec4(rgb, 1), THREE.NoToneMapping, THREE.SRGBColorSpace);
+    this.reference = { texture: map, quad: compositeQuad(display) };
   }
 
   async loadEnvironment(url) {
@@ -214,7 +244,8 @@ class ParticleRenderer {
 
   draw(simulation, frame, camera, settings, width, height, options) {
     const { renderer, samples, accumulation, sky, output } = this;
-    const { exporting, sampleCount, winter, black, overlay, frameRate = FPS } = options;
+    const { exporting, sampleCount, winter, black, overlay, showReference, frameRate = FPS } = options;
+    const reference = !exporting && showReference ? this.reference : null;
     const count = settings.depth || settings.shutter ? sampleCount : 1;
     const focus = Math.max(camera.near * 2, settings.focus);
     const aperture = focus * settings.depth * 0.007;
@@ -234,7 +265,7 @@ class ParticleRenderer {
 
     renderer.autoClear = true;
     renderer.setClearColor(0, 0);
-    if (winter && !black) {
+    if (winter && !black && !reference) {
       const key = [width, height, ...camera.quaternion.toArray(), camera.fov].join(',');
       if (key !== this.skyKey) {
         sky.setSize(Math.min(width, 960), Math.min(height, 540));
@@ -269,7 +300,7 @@ class ParticleRenderer {
     renderer.autoClear = true;
     renderer.setRenderTarget(exporting ? output : null);
     this.backdropMode.value = black ? 3 : winter ? 2 : Number(!exporting);
-    this.composite.render(renderer);
+    (reference?.quad ?? this.composite).render(renderer);
     if (overlay) {
       renderer.autoClear = false;
       renderer.render(overlay, camera);

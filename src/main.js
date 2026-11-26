@@ -748,6 +748,42 @@ async function start() {
     if (!event.repeat) togglePlayback();
   });
 
+  const referenceFile = $('reference-file');
+  const referenceStatus = $('reference-status');
+  const loadReference = $('load-reference');
+  const removeReference = $('remove-reference');
+  const referenceSettings = $('reference-settings');
+  const referenceDarkening = 60;
+  view.referenceDarkening.value = referenceDarkening / 100;
+  range(referenceSettings, 'Reference darkening', 0, 100, 1, referenceDarkening, value => {
+    view.referenceDarkening.value = value / 100;
+    dirty = true;
+  }, '%');
+  loadReference.addEventListener('click', () => referenceFile.click());
+  referenceFile.addEventListener('change', async () => {
+    const file = referenceFile.files[0];
+    referenceFile.value = '';
+    if (!file) return;
+    loadReference.disabled = removeReference.disabled = true;
+    try {
+      const image = await decodeReferenceImage(file);
+      view.setReferenceImage(image);
+      referenceStatus.textContent = file.name;
+      referenceSettings.hidden = removeReference.hidden = false;
+      dirty = true;
+    } catch {
+      referenceStatus.textContent = 'Could not open this image.';
+    } finally {
+      referenceStatus.hidden = false;
+      loadReference.disabled = removeReference.disabled = false;
+    }
+  });
+  removeReference.addEventListener('click', () => {
+    view.setReferenceImage(null);
+    referenceSettings.hidden = removeReference.hidden = referenceStatus.hidden = true;
+    dirty = true;
+  });
+
   const profiles = [[1, 4], [0.76, 4], [0.58, 4], [0.45, 3], [0.39, 2]];
   const previewQuality = $('preview-quality');
   const frameRate = $('frame-rate');
@@ -816,7 +852,8 @@ async function start() {
     const simulationFrame = simulationFrameAtRate(frame, rate);
     if (showGuides) updateGuideProgress(simulationFrame);
     view.draw(simulation, simulationFrame, camera, effects, width, height, {
-      exporting: false, sampleCount: previewSamples, winter, black, frameRate: rate, overlay: showGuides ? guides : null,
+      exporting: false, sampleCount: previewSamples, winter, black, frameRate: rate,
+      showReference: !previewFullscreen, overlay: showGuides ? guides : null,
     });
     lastPreviewSamples = previewSamples;
     if (width !== lastWidth) {
@@ -1186,6 +1223,20 @@ async function start() {
   $('load-project').disabled = false;
   $('share-project').disabled = false;
   $('project-slots').disabled = false;
+}
+
+async function decodeReferenceImage(file) {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const factor = Math.min(1, 4096 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * factor));
+    canvas.height = Math.max(1, Math.round(bitmap.height * factor));
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  } finally {
+    bitmap.close();
+  }
 }
 
 function downloadFile(contents, type, name) {

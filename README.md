@@ -27,6 +27,8 @@ Use Fullscreen or press F for a clean animation preview. Drag to orbit or scroll
 
 Under Preview, choose Auto to adapt resolution during playback or Full resolution to use native display pixels up to 3840 × 2160. Frame rate controls playback, the timeline frame count, and PNG export. The default ten seconds is 250 frames at 25 fps or 500 frames at 50 fps. Click the end-frame number beside the playhead readout to set the timeline length in frames at the current rate.
 
+Under Preview, use Load reference image to trace a picture. It fits inside the frame and stays fixed to the screen as you orbit. Reference darkening adjusts the black tint. The image stays in the current tab and is excluded from fullscreen playback, project saves, and exports.
+
 Each emitter has its own launch Speed variation up to 200% and Launch spread. Birth scatter varies the birth position in a sphere around the emitter. Welding sparks adds tiny sparks at the same birth points with one-third of the standard particle lifetime. Set spread to 0% for a tight jet, 100% for the default spread, or up to 200% for a wider spray.
 
 Drag the points on the Lifetime brightness curve or enter brightness percentages at the five ages. Brightness variation makes individual particles and sparks dimmer or brighter across the whole curve. Particles become more transparent near the end of their lives.

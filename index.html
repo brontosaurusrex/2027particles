@@ -130,6 +130,13 @@
               <option value="25">25 fps</option>
             </select>
           </label>
+          <div class="reference-actions">
+            <button id="load-reference" type="button">Load reference image</button>
+            <button id="remove-reference" type="button" hidden>Remove image</button>
+            <input id="reference-file" type="file" accept="image/*" hidden>
+          </div>
+          <p id="reference-status" role="status" hidden></p>
+          <div id="reference-settings" hidden></div>
         </div>
       </details>
     </aside>
