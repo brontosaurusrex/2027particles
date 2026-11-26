@@ -77,6 +77,7 @@ function readEmitter(value) {
   const brightness = vector(emitter.brightness ?? DEFAULT_BRIGHTNESS, DEFAULT_BRIGHTNESS.length, 0, 2, 'brightness curve');
   return {
     id, kind, points,
+    muted: boolean(emitter.muted ?? false, 'emitter mute state'),
     ...(primitive ? { primitive } : {}),
     position: vector(emitter.position, 3, primitive === 'curve' ? -40 : -36,
       primitive === 'curve' ? 40 : 36, 'emitter position'),
@@ -116,6 +117,8 @@ export function decodeProject(contents) {
   if (ids.size !== emitters.length) invalid('emitter IDs');
   const selectedEmitterId = project.selectedEmitterId;
   if (emitters.length ? !ids.has(selectedEmitterId) : selectedEmitterId !== null) invalid('selected emitter');
+  const soloEmitterId = project.soloEmitterId ?? null;
+  if (soloEmitterId !== null && !ids.has(soloEmitterId)) invalid('solo emitter');
   const nextEmitterId = integer(project.nextEmitterId, Math.max(0, ...ids) + 1, Number.MAX_SAFE_INTEGER, 'next emitter ID');
 
   const forces = object(project.forces, 'forces');
@@ -130,7 +133,7 @@ export function decodeProject(contents) {
   if (position.every((value, axis) => value === target[axis])) invalid('camera position');
 
   return {
-    emitters, selectedEmitterId, nextEmitterId,
+    emitters, selectedEmitterId, soloEmitterId, nextEmitterId,
     forces: {
       ...boundedSettings(forces, { gravity: [-10, 10], turbulence: [0, 10], drag: [0, 8] }, 'force'),
       wind: vector(forces.wind, 3, -8, 8, 'wind'),

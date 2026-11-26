@@ -7,7 +7,7 @@ import {
   createEmitter, curvePoints, emitterRotation, emitterSettings, frameAtRate, frameCountAtRate, outlineDirection,
   polygonFaces, positionOnStroke, primitivePoints, simulationFrameAtRate, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
-import { FULL_DOF_SAMPLES, chooseDestination, discardDestination, renderArchive, renderPrintFrame } from './export.js';
+import { ARCHIVE_NAME, FULL_DOF_SAMPLES, chooseDestination, discardDestination, renderArchive, renderPrintFrame } from './export.js';
 import { renderVectorFrame } from './export-svg.js';
 import { mountBrightnessEditor } from './brightness-editor.js';
 import { mountProjectSlots } from './project-slots.js';
@@ -46,7 +46,8 @@ async function start() {
   const emitters = [demo];
   let nextId = 2;
   let selected = demo;
-  let simulation = new Simulation(forces, emitters, view.shapeChoices);
+  let soloEmitterId = null;
+  let simulation = new Simulation(forces, emitters, view.shapeChoices, visibleEmitterIds());
   let playing = true;
   let playStart = performance.now();
   let playFrame = 1;
@@ -113,8 +114,16 @@ async function start() {
   }
   resetCamera();
 
+  function emitterVisible(emitter) {
+    return soloEmitterId === null ? !emitter.muted : emitter.id === soloEmitterId;
+  }
+
+  function visibleEmitterIds() {
+    return new Set(emitters.filter(emitterVisible).map(emitter => emitter.id));
+  }
+
   function invalidateSimulation() {
-    simulation = new Simulation(forces, emitters, view.shapeChoices);
+    simulation = new Simulation(forces, emitters, view.shapeChoices, visibleEmitterIds());
     dirty = true;
   }
 
@@ -157,7 +166,7 @@ async function start() {
       });
       group.removeFromParent();
     }
-    const entries = [...emitters];
+    const entries = emitters.filter(emitterVisible);
     if (stroke?.points.length > 1) entries.push(stroke);
     for (const emitter of entries) {
       const group = new THREE.Group();
@@ -430,16 +439,25 @@ async function start() {
     selected.brightness = curve;
     invalidateSimulation();
   });
-  function updateInspector() {
+  const soloButton = $('solo-emitter');
+  const muteButton = $('mute-emitter');
+  function updateEmitterMenu() {
     const menu = $('emitters');
     menu.replaceChildren(...emitters.map(emitter => {
       const name = emitter.primitive ? `${emitter.primitive} ${emitter.kind}` : emitter.kind;
       const label = emitter.id === demo.id ? 'Demo line' : `${name[0].toUpperCase() + name.slice(1)} ${emitter.id}`;
-      return new Option(label, emitter.id, false, emitter === selected);
+      const visibility = emitter.id === soloEmitterId ? ' · Solo' : emitter.muted ? ' · Muted' : '';
+      return new Option(label + visibility, emitter.id, false, emitter === selected);
     }));
     if (!selected) menu.add(new Option('Draw an emitter', ''));
     menu.disabled = !selected;
     $('emitter-controls').hidden = !selected;
+    soloButton.setAttribute('aria-pressed', String(soloEmitterId === selected?.id));
+    muteButton.setAttribute('aria-pressed', String(!!selected?.muted));
+  }
+
+  function updateInspector() {
+    updateEmitterMenu();
     if (!selected) return;
     const emission = $('emission');
     emission.replaceChildren();
@@ -520,8 +538,24 @@ async function start() {
     updateInspector();
     updateGuides();
   });
+  function updateEmitterVisibility() {
+    simulation.visibleEmitterIds = visibleEmitterIds();
+    updateEmitterMenu();
+    updateGuides();
+  }
+  soloButton.addEventListener('click', () => {
+    if (!selected) return;
+    soloEmitterId = soloEmitterId === selected.id ? null : selected.id;
+    updateEmitterVisibility();
+  });
+  muteButton.addEventListener('click', () => {
+    if (!selected) return;
+    selected.muted = !selected.muted;
+    updateEmitterVisibility();
+  });
   $('delete-emitter').addEventListener('click', () => {
     if (!selected) return;
+    if (soloEmitterId === selected.id) soloEmitterId = null;
     emitters.splice(emitters.indexOf(selected), 1);
     selected = emitters.at(-1);
     updateInspector();
@@ -775,7 +809,7 @@ async function start() {
 
   function captureProject() {
     return {
-      emitters, selectedEmitterId: selected?.id ?? null, nextEmitterId: nextId,
+      emitters, selectedEmitterId: selected?.id ?? null, soloEmitterId, nextEmitterId: nextId,
       forces, effects,
       camera: {
         position: camera.position.toArray(), target: orbit.target.toArray(), focalLength, winter,
@@ -842,6 +876,7 @@ async function start() {
     resetStroke();
     emitters.splice(0, emitters.length, ...project.emitters);
     selected = emitters.find(emitter => emitter.id === project.selectedEmitterId);
+    soloEmitterId = project.soloEmitterId;
     nextId = project.nextEmitterId;
     drawingPlane.value = project.editor.plane;
     planeOffset.value = project.editor.planeOffset;
@@ -863,11 +898,21 @@ async function start() {
     else pause();
   }
 
+  function emitterFileSuffix(visibleIds) {
+    if (visibleIds.size !== 1 || (soloEmitterId === null && emitters.length === 1)) return '';
+    const [id] = visibleIds;
+    return `_emitter_${String(id).padStart(2, '0')}`;
+  }
+
+  function frameExportName(frameNumber, visibleIds) {
+    return `frame_${String(frameNumber).padStart(4, '0')}${emitterFileSuffix(visibleIds)}`;
+  }
+
   $('export-svg').addEventListener('click', () => {
     if (exporting) return;
     try {
       const svg = renderVectorFrame(view, simulation, simulationFrameAtRate(frame, activeRate), camera, effects, frame);
-      downloadFile(svg, 'image/svg+xml', `frame_${String(frame).padStart(4, '0')}.svg`);
+      downloadFile(svg, 'image/svg+xml', `${frameExportName(frame, simulation.visibleEmitterIds)}.svg`);
     } catch (error) {
       $('hint').textContent = 'Could not export this frame as SVG.';
       console.error(error);
@@ -897,7 +942,9 @@ async function start() {
       dofSamples: chosenDofSamples(printSampling),
       forces: structuredClone(forces),
       emitters: structuredClone(emitters),
+      visibleEmitterIds: visibleEmitterIds(),
     };
+    const filename = `${frameExportName(frameNumber, snapshot.visibleEmitterIds)}_print.png`;
     $('export-svg').disabled = $('export').disabled = true;
     printButton.textContent = 'Cancel print';
     try {
@@ -905,7 +952,7 @@ async function start() {
         printButton.textContent = `Cancel print (${completed}/${total})`;
       });
       signal.throwIfAborted();
-      downloadFile(png, 'image/png', `frame_${String(frameNumber).padStart(4, '0')}_print.png`);
+      downloadFile(png, 'image/png', filename);
     } catch (error) {
       if (error.name !== 'AbortError') {
         $('hint').textContent = 'Could not export the print PNG.';
@@ -960,11 +1007,6 @@ async function start() {
         downloadURL = null;
         downloadDestination = null;
       }
-      destination = await chooseDestination();
-      signal.throwIfAborted();
-      progress.hidden = false;
-      exportStatus.hidden = false;
-      exportStatus.textContent = `Rendering frame 1 of ${count}…`;
       const snapshot = {
         camera: camera.clone(),
         frameRate: rate,
@@ -973,8 +1015,15 @@ async function start() {
         dofSamples: chosenDofSamples(sequenceSampling),
         forces: structuredClone(forces),
         emitters: structuredClone(emitters),
+        visibleEmitterIds: visibleEmitterIds(),
         winter: $('export-background').value === 'winter',
       };
+      const filename = ARCHIVE_NAME.replace('.zip', `${emitterFileSuffix(snapshot.visibleEmitterIds)}.zip`);
+      destination = await chooseDestination(filename);
+      signal.throwIfAborted();
+      progress.hidden = false;
+      exportStatus.hidden = false;
+      exportStatus.textContent = `Rendering frame 1 of ${count}…`;
       const file = await renderArchive(view, snapshot, destination, signal, rendered => {
         progress.value = rendered;
         exportStatus.textContent = `Rendered ${rendered} of ${count} frames`;
@@ -983,6 +1032,7 @@ async function start() {
         downloadDestination = destination;
         downloadURL = URL.createObjectURL(file);
         done.href = downloadURL;
+        done.download = filename;
         done.hidden = false;
       }
       exportStatus.textContent = file ? 'The ZIP is ready to download.' : 'The ZIP was saved.';

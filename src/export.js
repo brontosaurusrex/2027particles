@@ -13,7 +13,7 @@ function exportSamples(snapshot) {
 }
 
 export async function renderPrintFrame(view, snapshot, signal, onProgress) {
-  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices);
+  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices, snapshot.visibleEmitterIds);
   const camera = snapshot.camera.clone();
   const canvas = new OffscreenCanvas(PRINT_WIDTH, PRINT_HEIGHT);
   const context = canvas.getContext('2d');
@@ -69,11 +69,11 @@ async function setPrintResolution(png) {
   throw new Error('Could not set the print resolution.');
 }
 
-export async function chooseDestination() {
+export async function chooseDestination(filename = ARCHIVE_NAME) {
   if (typeof window.showSaveFilePicker === 'function') {
     try {
       const handle = await window.showSaveFilePicker({
-        suggestedName: ARCHIVE_NAME,
+        suggestedName: filename,
         types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
       });
       return { handle };
@@ -93,7 +93,7 @@ export async function discardDestination(destination) {
 }
 
 export async function renderArchive(view, snapshot, destination, signal, onProgress) {
-  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices);
+  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices, snapshot.visibleEmitterIds);
   const { frameCount, frameRate } = snapshot;
   const sampleCount = exportSamples(snapshot);
   const png = new OffscreenCanvas(WIDTH, HEIGHT);

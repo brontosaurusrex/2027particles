@@ -85,6 +85,10 @@
         <div class="section-body">
           <label class="select-row">Selected <select id="emitters" aria-label="Selected emitter"></select></label>
           <div id="emitter-controls">
+            <div class="emitter-visibility">
+              <button id="solo-emitter" type="button" aria-pressed="false" title="Show only the selected emitter">Solo</button>
+              <button id="mute-emitter" type="button" aria-pressed="false" title="Hide the selected emitter">Mute</button>
+            </div>
             <div id="emission"></div>
             <details class="transform">
               <summary>Lifetime brightness</summary>

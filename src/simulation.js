@@ -57,7 +57,7 @@ export function emitterSettings(source = {}) {
 }
 
 export function createEmitter(id, kind, points, position = [0, 0, 0], rotation = [0, 0, 0], source) {
-  return { id, kind, points, position, rotation, ...emitterSettings(source) };
+  return { id, kind, points, position, rotation, muted: false, ...emitterSettings(source) };
 }
 
 export function strokeDuration(emitter) {
@@ -241,11 +241,12 @@ function particleHistory(position) {
 }
 
 export class Simulation {
-  constructor(settings, emitters, shapeChoices) {
+  constructor(settings, emitters, shapeChoices, visibleEmitterIds = null) {
     this.settings = settings;
     this.emitters = emitters.map(emitter => ({ ...emitter, ...emitterSampler(emitter), drawDuration: strokeDuration(emitter) }));
     this.shapeChoices = shapeChoices;
     this.uniqueShapes = [...new Set(shapeChoices)];
+    this.visibleEmitterIds = visibleEmitterIds;
     this.reset();
   }
 
@@ -286,6 +287,7 @@ export class Simulation {
         .multiplyScalar(1.8 + 1.6 * random()).addScaledVector(parent.velocity, 0.5);
       this.particles.push({
         birth, death: birth + 0.4 + 0.35 * random(),
+        emitterId: parent.emitterId,
         brightness: parent.brightness,
         brightnessScale: 1 + (2 * this.fragmentBrightnessRandom() - 1) * parent.brightnessVariation,
         ...particleHistory(parent.position.clone()),
@@ -347,6 +349,7 @@ export class Simulation {
         const splits = this.splitRandom() < splitChance;
         const splitAge = lifetime * (0.55 + 0.2 * this.splitRandom());
         this.particles.push({
+          emitterId: emitter.id,
           birth,
           death: birth + lifetime,
           burstAt: splits ? birth + splitAge : Infinity,
@@ -405,6 +408,8 @@ export class Simulation {
     const end = this.frame * STEP;
     for (const particle of this.particles) {
       if (time < particle.birth || time >= particle.death) continue;
+      // Filter output only so isolating an emitter preserves seeded motion and bursts.
+      if (this.visibleEmitterIds && !this.visibleEmitterIds.has(particle.emitterId)) continue;
       const start = Math.max(end - STEP, particle.birth);
       const simulatedUntil = Math.min(end, particle.burstAt ?? Infinity);
       const fraction = MathUtils.clamp((time - start) / (simulatedUntil - start || STEP), 0, 1);

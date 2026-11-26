@@ -19,6 +19,8 @@ Choose Curve in Line, Outline, or Area mode. Click to place points on the drawin
 
 Save project downloads a JSON file with the emitters, camera, forces, trail and blur settings, drawing plane, timeline and export preferences. Load project restores that file in the editor. Project slots hold the same full scene in 20 named slots in your browser. The editor reopens the last slot you loaded when the page starts. Use Rename to change a slot's name while keeping its saved scene.
 
+Select an emitter and use Solo to isolate it or Mute to hide it. Solo temporarily overrides mute. The preview and all exports show the same emitters. When exporting an isolated emitter, the filename includes its emitter number so you can keep each layer separate.
+
 Right-click a slider to reset it to its default value.
 
 Use Fullscreen for a clean animation preview. Drag to orbit or scroll to zoom. Press Space to play or pause and Escape to return to the editor.
