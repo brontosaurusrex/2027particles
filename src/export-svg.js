@@ -127,29 +127,67 @@ function vectorParticles(batches, camera, glints = false) {
   return groups.sort((a, b) => a.z - b.z).map(group => group.svg).join('\n');
 }
 
+function edgeHandle(start, end, neighbor) {
+  const chord = end.clone().sub(start);
+  const extent = chord.length();
+  if (!neighbor || !extent) return start.clone().lerp(end, 1 / 3);
+  const incoming = start.clone().sub(neighbor);
+  const incomingLength = incoming.length();
+  if (!incomingLength || chord.dot(incoming) < -0.55 * extent * incomingLength) {
+    return start.clone().lerp(end, 1 / 3);
+  }
+  const tangent = chord.divideScalar(extent).add(incoming.divideScalar(incomingLength)).normalize();
+  return start.clone().addScaledVector(tangent, Math.min(extent, incomingLength) / 3);
+}
+
+const svgPoint = point => `${coordinate(point.x)},${coordinate(point.y)}`;
+
+function edgeControls(start, end, previous, next) {
+  return [edgeHandle(start, end, previous), edgeHandle(end, start, next), end];
+}
+
 function vectorTrails(trails, camera) {
   const gradients = [];
   const paths = [];
-  for (let index = 0; index < trails.count; index += 6) {
-    const frontAlpha = trails.appearance.getX(index);
-    const backAlpha = trails.appearance.getX(index + 2);
-    if (frontAlpha < 0.0005) continue;
-    const corners = [0, 1, 5, 2].map(offset =>
-      new Vector3().fromBufferAttribute(trails.positions, index + offset).applyMatrix4(camera.matrixWorldInverse));
-    const path = projectPolygon(corners, camera);
-    if (!path) continue;
-    const brightness = trails.appearance.getY(index);
-    const color = rotateHue(tintVectorColor(trailGold.clone(), trails.tint, index), trails.appearance.getZ(index))
-      .multiplyScalar(brightness * 1.45).getHexString();
-    if (corners.some(point => point.z > -camera.near || point.z < -camera.far)) {
-      paths.push(`<path fill="#${color}" opacity="${alpha((frontAlpha + backAlpha) / 2)}" d="${pathData(path)}"/>`);
-      continue;
+  for (let ribbon = 0; ribbon < trails.ribbonCount; ribbon++) {
+    const start = trails.ribbonStarts[ribbon];
+    const end = trails.ribbonStarts[ribbon + 1];
+    const color = rotateHue(tintVectorColor(trailGold.clone(), trails.tint, start), trails.appearance.getZ(start))
+      .multiplyScalar(trails.appearance.getY(start) * 1.45).getHexString();
+    const points = [];
+    for (let vertex = start; vertex < end; vertex++) {
+      const local = new Vector3().fromBufferAttribute(trails.positions, vertex).applyMatrix4(camera.matrixWorldInverse);
+      const screen = local.z <= -camera.near && local.z >= -camera.far ? project(local, camera) : null;
+      if (screen) screen.z = 0;
+      points.push({ local, screen });
     }
-    const front = project(corners[0].clone().lerp(corners[1], 0.5), camera);
-    const back = project(corners[2].clone().lerp(corners[3], 0.5), camera);
-    const id = `trail-${gradients.length + 1}`;
-    gradients.push(`<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${coordinate(front.x)}" y1="${coordinate(front.y)}" x2="${coordinate(back.x)}" y2="${coordinate(back.y)}"><stop offset="0" stop-color="#${color}" stop-opacity="${alpha(frontAlpha)}"/><stop offset="1" stop-color="#${color}" stop-opacity="${alpha(backAlpha)}"/></linearGradient>`);
-    paths.push(`<path fill="url(#${id})" d="${pathData(path)}"/>`);
+    for (let i = 0; i + 3 < points.length; i += 2) {
+      const frontAlpha = trails.appearance.getX(start + i);
+      const backAlpha = trails.appearance.getX(start + i + 2);
+      if (frontAlpha < 0.0005) continue;
+      const { screen: left } = points[i];
+      const { screen: right } = points[i + 1];
+      const { screen: nextLeft } = points[i + 2];
+      const { screen: nextRight } = points[i + 3];
+      if (!left || !right || !nextLeft || !nextRight) {
+        const polygon = [i, i + 1, i + 3, i + 2].map(index => points[index].local);
+        const path = projectPolygon(polygon, camera);
+        if (path) paths.push(`<path fill="#${color}" opacity="${alpha((frontAlpha + backAlpha) / 2)}" d="${pathData(path)}"/>`);
+        continue;
+      }
+      // Use the projected ribbon edges to match the raster outline under perspective.
+      const forward = edgeControls(left, nextLeft, points[i - 2]?.screen, points[i + 4]?.screen);
+      const backward = edgeControls(nextRight, right, points[i + 5]?.screen, points[i - 1]?.screen);
+      const bounds = [left, nextRight, ...forward, ...backward];
+      if (bounds.every(point => point.x < 0) || bounds.every(point => point.x > WIDTH) ||
+          bounds.every(point => point.y < 0) || bounds.every(point => point.y > HEIGHT)) continue;
+      const path = `M${svgPoint(left)}C${forward.map(svgPoint).join(' ')}L${svgPoint(nextRight)}C${backward.map(svgPoint).join(' ')}Z`;
+      const front = left.clone().lerp(right, 0.5);
+      const back = nextLeft.clone().lerp(nextRight, 0.5);
+      const id = `trail-${gradients.length + 1}`;
+      gradients.push(`<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${coordinate(front.x)}" y1="${coordinate(front.y)}" x2="${coordinate(back.x)}" y2="${coordinate(back.y)}"><stop offset="0" stop-color="#${color}" stop-opacity="${alpha(frontAlpha)}"/><stop offset="1" stop-color="#${color}" stop-opacity="${alpha(backAlpha)}"/></linearGradient>`);
+      paths.push(`<path fill="url(#${id})" d="${path}"/>`);
+    }
   }
   return { gradients: gradients.join('\n'), paths: paths.join('\n') };
 }

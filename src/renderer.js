@@ -163,11 +163,11 @@ class ParticleRenderer {
     return mesh;
   }
 
-  updateInstances(simulation, time, camera, effects) {
+  updateInstances(simulation, time, camera, effects, width = WIDTH, height = HEIGHT) {
     const { object, chips, sparks, trails } = this;
     chips.forEach(mesh => { mesh.count = 0; });
     sparks.count = 0;
-    trails.begin(camera, effects);
+    trails.begin(camera, effects, width, height);
     simulation.sample(time, (particle, fraction, age) => {
       const { rotation, spin, death, birth } = particle;
       const lifetime = particle.lifetime ?? (death - birth);
@@ -288,7 +288,7 @@ class ParticleRenderer {
       if (exposure > STEP) simulation.seek(Math.max(1, Math.ceil(time / STEP)));
       const radius = count === 1 ? 0 : Math.sqrt(((index * (count - 1)) % count + 0.5) / count);
       const sampled = this.setLensSample(camera, focus, aperture, radius, index * GOLDEN_ANGLE);
-      this.updateInstances(simulation, time, sampled, settings);
+      this.updateInstances(simulation, time, sampled, settings, width, height);
       renderer.autoClear = true;
       renderer.setRenderTarget(samples);
       renderer.render(this.scene, sampled);

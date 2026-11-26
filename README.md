@@ -65,7 +65,7 @@ The 25–200 mm full-frame focal length control moves the camera along its viewi
 
 Shutter angle controls exposure as a fraction of a frame. At 90° the exposure is 5 ms at 50 fps or 10 ms at 25 fps. Export animation can create a ZIP of 1920 × 1080 PNGs with a transparent, black, or winter background. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.
 
-Trail length extends each emitter’s ribbon up to six seconds. Trail width scales ribbon thickness from 0% to 300%. Trail only hides the chips and glints. Trail length variation gives individual particles shorter and longer trails around the selected length. At 100% variation, a trail can last up to twice that length.
+Trail length extends each emitter’s curved ribbon up to six seconds. SVG exports use editable Bézier paths for trail curves. Trail width scales ribbon thickness from 0% to 300%. Trail only hides the chips and glints. Trail length variation gives individual particles shorter and longer trails around the selected length. At 100% variation, a trail can last up to twice that length.
 
 Export animation also offers **ProRes 422 MOV** and **CineForm MOV** at 1920 × 1080 with a black background and Rec.709 SDR color. The browser encodes the movie locally and offers a download after rendering. Black PNGs use the same composition as Preview on black and carry an sRGB tag.
 

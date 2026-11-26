@@ -2,21 +2,23 @@ import {
   BufferAttribute, BufferGeometry, Color, DoubleSide, DynamicDrawUsage, Mesh, MeshBasicNodeMaterial, Vector3,
 } from 'three/webgpu';
 import { attribute, uniform } from 'three/tsl';
-import { CAPACITY, STEP, TRAIL_HISTORY } from './simulation.js';
+import { CAPACITY } from './simulation.js';
 import { colorWithPalette, particleTint } from './palette-color.js';
-
-const MAX_SEGMENTS = 24;
+import { TrailCurve, TRAIL_SEGMENT_LIMIT } from './trail-curve.js';
 
 export class MotionTrails {
   constructor() {
-    const capacity = CAPACITY * MAX_SEGMENTS * 6;
+    const capacity = CAPACITY * (TRAIL_SEGMENT_LIMIT + 1) * 2;
     this.positions = new BufferAttribute(new Float32Array(capacity * 3), 3).setUsage(DynamicDrawUsage);
     this.appearance = new BufferAttribute(new Float32Array(capacity * 3), 3).setUsage(DynamicDrawUsage);
     this.tint = new BufferAttribute(new Float32Array(capacity * 3), 3).setUsage(DynamicDrawUsage);
+    this.indices = new BufferAttribute(new Uint32Array(CAPACITY * TRAIL_SEGMENT_LIMIT * 6), 1).setUsage(DynamicDrawUsage);
+    this.ribbonStarts = new Uint32Array(CAPACITY + 1);
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', this.positions);
     geometry.setAttribute('trailAppearance', this.appearance);
     geometry.setAttribute('paletteTint', this.tint);
+    geometry.setIndex(this.indices);
     const material = new MeshBasicNodeMaterial({
       transparent: true, depthWrite: false, side: DoubleSide, forceSinglePass: true,
     });
@@ -26,90 +28,89 @@ export class MotionTrails {
     this.mesh = new Mesh(geometry, material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = -1;
+    this.curve = new TrailCurve();
     this.view = new Vector3();
-    this.points = Array.from({ length: MAX_SEGMENTS + 1 }, () => new Vector3());
-    this.sides = Array.from({ length: MAX_SEGMENTS }, () => new Vector3());
-    this.offsets = Array.from({ length: MAX_SEGMENTS + 1 }, () => new Vector3());
-    this.fades = new Float64Array(MAX_SEGMENTS + 1);
+    this.sides = Array.from({ length: TRAIL_SEGMENT_LIMIT }, () => new Vector3());
+    this.offset = new Vector3();
     this.count = 0;
   }
 
-  begin(camera, defaults) {
+  begin(camera, defaults, width, height) {
     this.defaults = defaults;
-    this.count = 0;
+    this.count = this.vertexCount = this.ribbonCount = 0;
     camera.getWorldDirection(this.view);
+    this.curve.setCamera(camera, width, height);
   }
 
   add(particle, head, time, scale, opacity, brightness) {
-    const { history, historyNext, historyCount, size, hue: angle = 0, trailLengthJitter = 0 } = particle;
+    const { historyCount, size, hue: angle = 0, trailLengthJitter = 0 } = particle;
     const { trail = 0, trailWidth = 100, trailLengthVariation = 0 } = particle.style ?? this.defaults;
     const duration = trail / 1000 * (1 + trailLengthVariation / 100 * trailLengthJitter);
     if (!historyCount || duration <= 0 || trailWidth <= 0) return;
 
-    const { points, sides, offsets, fades } = this;
-    const cutoff = time - duration;
-    const stride = Math.max(1, Math.ceil((duration / STEP + 1) / MAX_SEGMENTS));
-    points[0].copy(head);
-    fades[0] = 1;
-    let count = 0;
-    let frontTime = time;
-    for (let segment = 0; segment < MAX_SEGMENTS; segment++) {
-      const index = Math.min(segment * stride, historyCount - 1);
-      const slot = (historyNext - 1 - index + TRAIL_HISTORY) % TRAIL_HISTORY * 4;
-      const sampleTime = history[slot + 3];
-      if (sampleTime < frontTime) {
-        const back = points[count + 1].fromArray(history, slot);
-        if (sampleTime < cutoff) back.lerp(points[count], (cutoff - sampleTime) / (frontTime - sampleTime));
-        const side = sides[count].subVectors(points[count], back).cross(this.view);
-        if (side.lengthSq() > 1e-9) {
-          side.normalize();
-          fades[++count] = (Math.max(cutoff, sampleTime) - cutoff) / duration;
-          frontTime = sampleTime;
-        }
+    const { curve, sides, offset } = this;
+    const segments = curve.tessellate(particle, head, time, duration);
+    if (!segments) return;
+    const { samples, fades } = curve;
+    let firstSide = -1;
+    for (let i = 0; i < segments; i++) {
+      const side = sides[i].subVectors(samples[i], samples[i + 1]).cross(this.view);
+      if (side.lengthSq() > 1e-9) {
+        side.normalize();
+        if (firstSide < 0) firstSide = i;
+        else if (side.dot(sides[i - 1]) < 0) side.negate();
+      } else if (firstSide >= 0) {
+        side.copy(sides[i - 1]);
       }
-      if (sampleTime <= cutoff || index === historyCount - 1) break;
     }
-    if (!count) return;
+    if (firstSide < 0) return;
+    for (let i = 0; i < firstSide; i++) sides[i].copy(sides[firstSide]);
+
+    const start = this.vertexCount;
     const width = size * scale * 0.34 * trailWidth / 100;
     const tint = particleTint(particle);
-    // Shared, capped miter joins keep adjacent quads together around bends.
-    for (let i = 0; i <= count; i++) {
+    this.ribbonStarts[this.ribbonCount++] = start;
+    // Both triangles at each join share the same positions and opacity.
+    for (let i = 0; i <= segments; i++) {
       const before = sides[Math.max(0, i - 1)];
-      const after = sides[Math.min(i, count - 1)];
-      const offset = offsets[i].addVectors(before, after).normalize();
+      const after = sides[Math.min(i, segments - 1)];
+      offset.addVectors(before, after).normalize();
       if (offset.lengthSq() === 0) offset.copy(after);
       offset.multiplyScalar(width * fades[i] / Math.max(0.5, offset.dot(after)));
-      fades[i] = fades[i] ** 1.8 * 0.68 * opacity;
+      const fade = fades[i] ** 1.8 * 0.68 * opacity;
+      this.vertex(samples[i], 1, fade, brightness, angle, tint);
+      this.vertex(samples[i], -1, fade, brightness, angle, tint);
     }
-    for (let i = 0; i < count; i++) {
-      this.vertex(i, 1, brightness, angle, tint);
-      this.vertex(i, -1, brightness, angle, tint);
-      this.vertex(i + 1, 1, brightness, angle, tint);
-      this.vertex(i + 1, 1, brightness, angle, tint);
-      this.vertex(i, -1, brightness, angle, tint);
-      this.vertex(i + 1, -1, brightness, angle, tint);
+    const indices = this.indices.array;
+    for (let i = 0; i < segments; i++) {
+      const vertex = start + i * 2;
+      indices[this.count++] = vertex;
+      indices[this.count++] = vertex + 1;
+      indices[this.count++] = vertex + 2;
+      indices[this.count++] = vertex + 2;
+      indices[this.count++] = vertex + 1;
+      indices[this.count++] = vertex + 3;
     }
   }
 
-  vertex(sample, direction, brightness, angle, tint) {
-    const point = this.points[sample];
-    const offset = this.offsets[sample];
-    const index = this.count++;
-    this.positions.setXYZ(index, point.x + direction * offset.x, point.y + direction * offset.y,
-      point.z + direction * offset.z);
-    this.appearance.setXYZ(index, this.fades[sample], brightness, angle);
+  vertex(point, sign, opacity, brightness, angle, tint) {
+    const index = this.vertexCount++;
+    const { x, y, z } = this.offset;
+    this.positions.setXYZ(index, point.x + sign * x, point.y + sign * y, point.z + sign * z);
+    this.appearance.setXYZ(index, opacity, brightness, angle);
     this.tint.setXYZ(index, ...tint);
   }
 
   finish() {
+    this.ribbonStarts[this.ribbonCount] = this.vertexCount;
     this.mesh.visible = this.count > 0;
     this.mesh.geometry.setDrawRange(0, this.count);
     if (!this.count) return;
-    this.positions.addUpdateRange(0, this.count * 3);
-    this.positions.needsUpdate = true;
-    this.appearance.addUpdateRange(0, this.count * 3);
-    this.appearance.needsUpdate = true;
-    this.tint.addUpdateRange(0, this.count * 3);
-    this.tint.needsUpdate = true;
+    this.indices.addUpdateRange(0, this.count);
+    this.indices.needsUpdate = true;
+    for (const attribute of [this.positions, this.appearance, this.tint]) {
+      attribute.addUpdateRange(0, this.vertexCount * 3);
+      attribute.needsUpdate = true;
+    }
   }
 }
