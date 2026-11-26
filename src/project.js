@@ -1,5 +1,5 @@
 import { DEFAULT_BRIGHTNESS } from './lifetime.js';
-import { EMITTER_LIMIT, FPS, FRAME_COUNT, MAX_TRAIL_MS, emitterSettings, validateStroke } from './simulation.js';
+import { EMITTER_LIMIT, FPS, FRAME_COUNT, MAX_TRAIL_MS, MIN_CHIP_SIZE, emitterSettings, validateStroke } from './simulation.js';
 
 const FORMAT = '2027-particles';
 const VERSION = 1;
@@ -9,7 +9,7 @@ export const FOCAL_LENGTH_BOUNDS = [25, 200];
 export const MAX_FOCUS_DISTANCE = 300;
 
 const emitterBounds = {
-  rate: [0, 400], lifetime: [0.1, 8], size: [0.02, 0.3], sizeVariation: [0, 150],
+  rate: [0, 400], lifetime: [0.1, 8], size: [MIN_CHIP_SIZE, 0.3], sizeVariation: [0, 150],
   speed: [0, 10], speedVariation: [0, 100], hueVariation: [0, 180], drawSpeed: [0, 100],
   smoothing: [0, 100], rotationSpeed: [0, 360], rotationVariation: [0, 100], splitChance: [0, 100],
 };
@@ -62,6 +62,9 @@ function readEmitter(value) {
   const emitter = object(value, 'emitter');
   const id = integer(emitter.id, 1, Number.MAX_SAFE_INTEGER - 1, 'emitter ID');
   const kind = choice(emitter.kind, ['line', 'outline', 'area'], 'emitter type');
+  const primitive = emitter.primitive === undefined ? undefined :
+    choice(emitter.primitive, ['circle', 'square'], 'emitter shape');
+  if (primitive && kind === 'line') invalid('emitter shape');
   if (!Array.isArray(emitter.points) || emitter.points.length > 512) invalid('emitter path');
   const points = emitter.points.map(point => vector(point, 2, -72, 72, 'emitter point'));
   if (validateStroke(kind, points) || !points.some(([x, y]) => x !== points[0][0] || y !== points[0][1])) {
@@ -70,6 +73,7 @@ function readEmitter(value) {
   const brightness = vector(emitter.brightness ?? DEFAULT_BRIGHTNESS, DEFAULT_BRIGHTNESS.length, 0, 2, 'brightness curve');
   return {
     id, kind, points,
+    ...(primitive ? { primitive } : {}),
     position: vector(emitter.position, 3, -36, 36, 'emitter position'),
     rotation: vector(emitter.rotation, 3, -360, 360, 'emitter rotation'),
     ...boundedSettings(emitterSettings({ ...emitter, brightness }), emitterBounds, 'emitter'),
@@ -133,6 +137,7 @@ export function decodeProject(contents) {
       mode: choice(editor.mode, ['orbit', 'line', 'outline', 'area'], 'drawing mode'),
       plane: choice(editor.plane, ['xy', 'xz', 'yz'], 'drawing plane'),
       planeOffset: number(editor.planeOffset, -12, 12, 'drawing plane offset'),
+      drawingShape: choice(editor.drawingShape ?? 'freehand', ['freehand', 'circle', 'square'], 'drawing shape'),
       previewQuality: choice(editor.previewQuality ?? 'auto', ['auto', 'full'], 'preview quality'),
       frameRate: choice(editor.frameRate ?? FPS, [25, FPS], 'frame rate'),
     },

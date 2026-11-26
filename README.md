@@ -11,6 +11,8 @@ Open the Local URL printed by Vite. Three.js uses WebGPU when available and fall
 
 Choose Line, Outline, or Area and drag on the work plane. Change the plane or offset before drawing. Use the emitter inspector to change its position, rotation, and emission. Orbit mode lets you drag to orbit, scroll to zoom, and right-drag to pan.
 
+In Outline or Area mode, choose Circle or Square and drag outward from the center. Outline emits around the perimeter. Area emits across the filled shape.
+
 Save project downloads a JSON file with the emitters, camera, forces, trail and blur settings, drawing plane, timeline and export preferences. Load project restores that file in the editor. Project slots hold the same full scene in 20 named slots in your browser. Use Rename to change a slot's name while keeping its saved scene.
 
 Use Fullscreen for a clean animation preview. Drag to orbit or scroll to zoom. Press Space to play or pause and Escape to return to the editor.
@@ -25,7 +27,7 @@ Rotation speed sets the tumble rate in degrees per second. Rotation variation sp
 
 Split chance gives each particle a chance to burst once into six smaller sparks partway through its life. Each burst scatters a mix of shapes and colors in 3D.
 
-Size variation controls the spread around the selected emitter's Chip size. Set it to 0% for equal-sized chips, 100% for the default mix, or up to 150% for a wider mix.
+Chip size can be set from 0.001 to 0.3. Size variation controls the spread around that size. Set it to 0% for equal-sized chips, 100% for the default mix, or up to 150% for a wider mix.
 
 Hue variation gives each particle from the selected emitter a consistent random color shift. At 0° the palette stays gold. Wider ranges add more colors in the preview, PNG frames, and SVG.
 

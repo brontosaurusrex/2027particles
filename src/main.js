@@ -3,8 +3,8 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createRenderer, WIDTH, HEIGHT } from './renderer.js';
 import {
-  EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_TRAIL_MS, STEP, Simulation, createEmitter, emitterRotation, polygonFaces,
-  positionOnStroke, strokeDuration, strokePath, validateStroke,
+  EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_TRAIL_MS, MIN_CHIP_SIZE, STEP, Simulation, createEmitter, emitterRotation, polygonFaces,
+  positionOnStroke, primitivePoints, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
 import { chooseDestination, discardDestination, renderArchive, sequenceFrameCount } from './export.js';
 import { renderVectorFrame } from './export-svg.js';
@@ -55,6 +55,7 @@ async function start() {
   let previewFullscreen = false;
   let mode = 'orbit';
   let stroke = null;
+  let strokeOrigin;
   let exporting = null;
   let downloadURL;
   let downloadDestination;
@@ -77,6 +78,7 @@ async function start() {
   const zero = new THREE.Vector3();
   const normal = new THREE.Vector3();
   const point = new THREE.Vector3();
+  const drawingShape = $('drawing-shape');
 
   function setLens(value, keepFraming = false) {
     if (keepFraming) {
@@ -163,7 +165,7 @@ async function start() {
         group.add(revealed);
         animatedOutlines.push({ geometry: revealed.geometry, path, duration, tip: 0 });
       }
-      if (emitter.kind === 'area' && emitter !== stroke) {
+      if (emitter.kind === 'area' && (emitter !== stroke || emitter.primitive)) {
         const area = new THREE.BufferGeometry().setFromPoints(vertices.slice(0, -1));
         area.setIndex(polygonFaces(emitter.points).flat());
         const fill = new THREE.Mesh(area, new THREE.MeshBasicMaterial({
@@ -196,15 +198,26 @@ async function start() {
     orbit.enabled = previewFullscreen || !drawing;
     workPlane.visible = drawing;
     outlines.visible = drawing;
+    drawingShape.disabled = mode !== 'outline' && mode !== 'area';
     stage.dataset.draw = String(drawing);
     document.querySelectorAll('[data-mode]').forEach(button =>
       button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
-    $('hint').textContent = hints[mode];
+    showDrawingHint();
     dirty = true;
+  }
+
+  function showDrawingHint() {
+    const primitive = !drawingShape.disabled && drawingShape.value;
+    const primitiveHints = {
+      circle: 'Drag from the center to set the circle radius.',
+      square: 'Drag from the center toward a corner to size the square.',
+    };
+    $('hint').textContent = primitiveHints[primitive] ?? hints[mode];
   }
 
   document.querySelectorAll('[data-mode]').forEach(button =>
     button.addEventListener('click', () => setMode(button.dataset.mode)));
+  drawingShape.addEventListener('change', showDrawingHint);
   $('plane').addEventListener('change', updatePlane);
   $('plane-offset').addEventListener('change', updatePlane);
   $('reset-view').addEventListener('click', () => {
@@ -248,30 +261,40 @@ async function start() {
     }
     event.preventDefault();
     pause();
-    $('hint').textContent = hints[mode];
+    showDrawingHint();
     stroke = createEmitter(nextId, mode, [first], workPlane.position.toArray(),
       planeAngles[$('plane').value], emitters.at(-1));
+    strokeOrigin = first;
+    if (!drawingShape.disabled && drawingShape.value !== 'freehand') {
+      stroke.primitive = drawingShape.value;
+      stroke.points = [];
+    }
     canvas.setPointerCapture(event.pointerId);
   });
   canvas.addEventListener('pointermove', event => {
     if (!stroke || !canvas.hasPointerCapture(event.pointerId)) return;
     const next = strokePoint(event);
     if (!next) return;
-    const last = stroke.points.at(-1);
-    if (stroke.points.length < 512 && Math.hypot(next[0] - last[0], next[1] - last[1]) >= 0.047) {
-      stroke.points.push(next);
-      updateGuides();
-    }
+    if (updateStroke(next, 0.047)) updateGuides();
   });
+
+  function updateStroke(next, spacing) {
+    if (stroke.primitive) {
+      stroke.points = primitivePoints(stroke.primitive, strokeOrigin, next);
+      return true;
+    }
+    const last = stroke.points.at(-1);
+    if (stroke.points.length >= 512 || Math.hypot(next[0] - last[0], next[1] - last[1]) < spacing) return false;
+    stroke.points.push(next);
+    return true;
+  }
+
   canvas.addEventListener('pointerup', event => {
     if (!stroke || !canvas.hasPointerCapture(event.pointerId)) return;
     const next = strokePoint(event);
-    const last = stroke.points.at(-1);
-    if (next && Math.hypot(next[0] - last[0], next[1] - last[1]) > 0.025 && stroke.points.length < 512) {
-      stroke.points.push(next);
-    }
-    const first = stroke.points[0];
-    if (stroke.kind !== 'line' && stroke.points.length > 2) {
+    if (next) updateStroke(next, 0.025);
+    if (!stroke.primitive && stroke.kind !== 'line' && stroke.points.length > 2) {
+      const first = stroke.points[0];
       const end = stroke.points.at(-1);
       if (Math.hypot(end[0] - first[0], end[1] - first[1]) < 0.12) stroke.points.pop();
     }
@@ -306,7 +329,8 @@ async function start() {
   function updateInspector() {
     const menu = $('emitters');
     menu.replaceChildren(...emitters.map(emitter => {
-      const label = emitter.id === demo.id ? 'Demo line' : `${emitter.kind[0].toUpperCase() + emitter.kind.slice(1)} ${emitter.id}`;
+      const name = emitter.primitive ? `${emitter.primitive} ${emitter.kind}` : emitter.kind;
+      const label = emitter.id === demo.id ? 'Demo line' : `${name[0].toUpperCase() + name.slice(1)} ${emitter.id}`;
       return new Option(label, emitter.id, false, emitter === selected);
     }));
     if (!selected) menu.add(new Option('Draw an emitter', ''));
@@ -317,7 +341,7 @@ async function start() {
     emission.replaceChildren();
     for (const [label, key, min, max, step, suffix] of [
       ['Rate / sec', 'rate', 0, 400, 1], ['Lifetime (s)', 'lifetime', 0.1, 8, 0.1],
-      ['Chip size', 'size', 0.02, 0.3, 0.005], ['Size variation', 'sizeVariation', 0, 150, 1, '%'],
+      ['Chip size', 'size', MIN_CHIP_SIZE, 0.3, 0.001], ['Size variation', 'sizeVariation', 0, 150, 1, '%'],
       ['Launch speed', 'speed', 0, 10, 0.1],
       ['Hue variation', 'hueVariation', 0, 180, 1, '°'],
       ['Rotation speed', 'rotationSpeed', 0, 360, 1, '°/s'],
@@ -335,11 +359,13 @@ async function start() {
     }, '%');
     variation.title = 'Random variation above and below the launch speed.';
     if (selected.kind !== 'area') {
-      range(emission, 'Smoothing', 0, 100, 1, selected.smoothing, value => {
-        selected.smoothing = value;
-        updateGuides();
-        invalidateSimulation();
-      }, '%');
+      if (!selected.primitive) {
+        range(emission, 'Smoothing', 0, 100, 1, selected.smoothing, value => {
+          selected.smoothing = value;
+          updateGuides();
+          invalidateSimulation();
+        }, '%');
+      }
       const { input } = range(emission, 'Draw speed', 0, 100, 0.5, selected.drawSpeed, value => {
         selected.drawSpeed = value;
         updateGuides();
@@ -558,6 +584,7 @@ async function start() {
       },
       editor: {
         mode, plane: $('plane').value, planeOffset: Number($('plane-offset').value),
+        drawingShape: drawingShape.value,
         previewQuality: previewQuality.value, frameRate: Number(frameRate.value),
       },
       playback: { frame, playing, loop: loop.checked },
@@ -615,6 +642,7 @@ async function start() {
     nextId = project.nextEmitterId;
     $('plane').value = project.editor.plane;
     $('plane-offset').value = project.editor.planeOffset;
+    drawingShape.value = project.editor.drawingShape;
     previewQuality.value = project.editor.previewQuality;
     frameRate.value = String(project.editor.frameRate);
     syncFrameRate();

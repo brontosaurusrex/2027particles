@@ -6,6 +6,7 @@ export const FRAME_COUNT = 500;
 export const STEP = 1 / FPS;
 export const CAPACITY = 2400;
 export const EMITTER_LIMIT = 32;
+export const MIN_CHIP_SIZE = 0.001;
 export const MAX_TRAIL_MS = 1200;
 export const TRAIL_HISTORY = Math.ceil(2 * MAX_TRAIL_MS / (1000 * STEP)) + 1;
 const TAU = 2 * Math.PI;
@@ -44,6 +45,26 @@ export function strokeDuration(emitter) {
   return emitter.kind !== 'area' && emitter.drawSpeed > 0 ? 100 / emitter.drawSpeed : Infinity;
 }
 
+export function primitivePoints(shape, [cx, cy], [x, y]) {
+  const dx = x - cx;
+  const dy = y - cy;
+  if (shape === 'square') {
+    const halfSide = Math.max(Math.abs(dx), Math.abs(dy));
+    if (halfSide < 0.05) return [];
+    const a = dx < 0 ? -halfSide : halfSide;
+    const b = dy < 0 ? -halfSide : halfSide;
+    return [[a, b], [-b, a], [-a, -b], [b, -a]].map(([px, py]) => [cx + px, cy + py]);
+  }
+  const radius = Math.hypot(dx, dy);
+  if (radius < 0.05) return [];
+  const start = Math.atan2(dy, dx);
+  const segments = 96;
+  return Array.from({ length: segments }, (_, index) => {
+    const angle = start + index * TAU / segments;
+    return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)];
+  });
+}
+
 // Chaikin corner cutting rounds each corner and keeps open stroke endpoints fixed.
 function smoothStroke(points, closed, smoothing) {
   if (points.length < 3 || !smoothing) return points;
@@ -64,9 +85,9 @@ function smoothStroke(points, closed, smoothing) {
   return vertices;
 }
 
-export function strokePath({ kind, points, smoothing = 0 }) {
+export function strokePath({ kind, points, smoothing = 0, primitive }) {
   const closed = kind !== 'line';
-  const path = smoothStroke(points, closed, kind === 'area' ? 0 : smoothing);
+  const path = smoothStroke(points, closed, kind === 'area' || primitive ? 0 : smoothing);
   const vertices = closed ? [...path, path[0]] : path;
   let length = 0;
   const distances = vertices.map(([x, y], index) => {
