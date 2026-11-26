@@ -13,7 +13,9 @@ Choose Line, Outline, or Area and drag on the work plane. Change the plane or of
 
 Choose Camera plane to draw flat to the current view. At zero offset the plane passes through the orbit target. Positive offsets bring it toward the camera. The finished emitter stays in its 3D position and orientation as you orbit.
 
-In Outline or Area mode, choose Circle or Square and drag outward from the center. Outline emits around the perimeter. Area emits across the filled shape.
+In Outline or Area mode, choose Circle or Rectangle and drag outward from the center. Hold Shift while drawing a rectangle to make it square. Outline emits around the perimeter. Area emits across the filled shape.
+
+To reposition an emitter, select it, click Move, and drag in the viewport. Its guide follows the pointer while you drag. Release to apply the new position, or press Escape to cancel.
 
 Choose Curve in Line, Outline, or Area mode. Click to place points on the drawing plane. Use Finish curve or Enter to commit it. Backspace removes the last point while drawing, and Escape cancels the curve.
 

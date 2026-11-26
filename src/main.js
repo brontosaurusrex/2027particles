@@ -23,6 +23,7 @@ const stage = $('stage');
 const status = $('backend');
 const hints = {
   orbit: 'Drag to orbit · Scroll to zoom · Right-drag to pan',
+  move: 'Select an emitter and drag in the viewport to move it. Esc cancels the drag.',
   line: 'Drag on the grid to draw an open line.',
   outline: 'Drag on the grid. The last point joins the first.',
   area: 'Drag around a region to fill it with births.',
@@ -67,6 +68,9 @@ async function start() {
   let mode = 'orbit';
   let stroke = null;
   let strokeOrigin;
+  let rectangleCorner;
+  let selectedGuide;
+  let emitterDrag;
   let curveAnchors = [];
   let exporting = null;
   let printExport = null;
@@ -146,13 +150,17 @@ async function start() {
     dirty = true;
   }
 
-  function strokePoint(event) {
+  function setPointerRay(event) {
     const bounds = stage.getBoundingClientRect();
     camera.updateMatrixWorld();
     ray.setFromCamera({
       x: (event.clientX - bounds.left) / bounds.width * 2 - 1,
       y: 1 - (event.clientY - bounds.top) / bounds.height * 2,
     }, camera);
+  }
+
+  function strokePoint(event) {
+    setPointerRay(event);
     if (Math.abs(ray.ray.direction.dot(normal)) < 0.045) return null;
     if (!ray.ray.intersectPlane(plane, point) || point.distanceToSquared(zero) > 1200) return null;
     const depth = -cameraPoint.copy(point).applyMatrix4(camera.matrixWorldInverse).z;
@@ -162,6 +170,8 @@ async function start() {
   }
 
   function updateGuides() {
+    finishEmitterDrag();
+    selectedGuide = null;
     animatedOutlines.length = 0;
     for (const group of [...outlines.children]) {
       group.traverse(object => {
@@ -170,7 +180,7 @@ async function start() {
       });
       group.removeFromParent();
     }
-    const entries = emitters.filter(emitterVisible);
+    const entries = emitters.filter(emitter => emitterVisible(emitter) || (mode === 'move' && emitter === selected));
     if (stroke?.points.length > 1) entries.push(stroke);
     for (const emitter of entries) {
       const group = new THREE.Group();
@@ -206,6 +216,7 @@ async function start() {
         group.add(fill);
       }
       outlines.add(group);
+      if (emitter === selected) selectedGuide = group;
     }
     if (stroke?.primitive === 'curve' && curveAnchors.length) {
       const positions = curveAnchors.flatMap(([x, y]) => [
@@ -237,17 +248,21 @@ async function start() {
 
   function setMode(value) {
     if (mode !== value) discardCurve();
+    const wasMoving = mode === 'move';
     mode = value;
-    const drawing = mode !== 'orbit';
-    orbit.enabled = previewFullscreen || !drawing;
+    const moving = mode === 'move';
+    const drawing = mode !== 'orbit' && !moving;
+    orbit.enabled = previewFullscreen || mode === 'orbit';
     workPlane.visible = drawing;
-    outlines.visible = drawing;
+    outlines.visible = drawing || moving;
+    if (moving || wasMoving) updateGuides();
     drawingShape.disabled = !drawing;
-    for (const primitive of ['circle', 'square']) {
+    for (const primitive of ['circle', 'rectangle']) {
       drawingShape.querySelector(`[value=${primitive}]`).disabled = mode === 'line';
     }
     if (drawingShape.selectedOptions[0]?.disabled) drawingShape.value = 'freehand';
     stage.dataset.draw = String(drawing);
+    stage.dataset.move = String(moving);
     document.querySelectorAll('[data-mode]').forEach(button =>
       button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
     showDrawingHint();
@@ -258,7 +273,7 @@ async function start() {
     const primitive = !drawingShape.disabled && drawingShape.value;
     const primitiveHints = {
       circle: 'Drag from the center to set the circle radius.',
-      square: 'Drag from the center toward a corner to size the square.',
+      rectangle: 'Drag from the center to size the rectangle. Hold Shift for a square.',
       curve: 'Click points to draw a curve. Press Enter to finish.',
     };
     $('hint').textContent = primitiveHints[primitive] ?? hints[mode];
@@ -297,7 +312,10 @@ async function start() {
     if (previewFullscreen === active) return;
     previewFullscreen = active;
     orbit.enabled = active || mode === 'orbit';
-    if (active) discardCurve();
+    if (active) {
+      finishEmitterDrag();
+      discardCurve();
+    }
     fullscreen.setAttribute('aria-pressed', String(active));
     (active ? viewport : fullscreen).focus({ preventScroll: true });
     dirty = true;
@@ -311,9 +329,51 @@ async function start() {
 
   const canvas = renderer.domElement;
   canvas.tabIndex = -1;
+
+  function startEmitterDrag(event) {
+    if (!selectedGuide || emitterDrag) return;
+    setPointerRay(event);
+    const origin = selectedGuide.position.clone();
+    const dragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), origin);
+    const start = ray.ray.intersectPlane(dragPlane, new THREE.Vector3());
+    if (!start) return;
+    pause();
+    emitterDrag = { pointerId: event.pointerId, plane: dragPlane, start, origin, emitter: selected, guide: selectedGuide };
+    canvas.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function moveEmitterDrag(event) {
+    setPointerRay(event);
+    const { plane, start, origin, guide, emitter } = emitterDrag;
+    if (!ray.ray.intersectPlane(plane, point)) return;
+    const limit = emitter.primitive === 'curve' ? 40 : 36;
+    guide.position.copy(point).sub(start).add(origin).clampScalar(-limit, limit);
+    dirty = true;
+  }
+
+  function finishEmitterDrag(commit = false) {
+    if (!emitterDrag) return;
+    const { pointerId, emitter, guide } = emitterDrag;
+    emitterDrag = null;
+    if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
+    if (commit && !guide.position.equals(new THREE.Vector3(...emitter.position))) {
+      emitter.position = guide.position.toArray();
+      updateInspector();
+      invalidateSimulation();
+    } else {
+      guide.position.fromArray(emitter.position);
+    }
+    dirty = true;
+  }
+
   finishCurveButton.addEventListener('click', finishCurve);
   canvas.addEventListener('pointerdown', event => {
     if (previewFullscreen || mode === 'orbit' || (stroke && stroke.primitive !== 'curve') || event.button !== 0) return;
+    if (mode === 'move') {
+      startEmitterDrag(event);
+      return;
+    }
     if (emitters.length >= EMITTER_LIMIT) {
       $('hint').textContent = `Delete an emitter before adding another. Maximum ${EMITTER_LIMIT}.`;
       return;
@@ -348,6 +408,10 @@ async function start() {
     canvas.setPointerCapture(event.pointerId);
   });
   canvas.addEventListener('pointermove', event => {
+    if (emitterDrag?.pointerId === event.pointerId) {
+      moveEmitterDrag(event);
+      return;
+    }
     if (stroke?.primitive === 'curve') {
       if (event.pointerType === 'mouse') refreshCurve(strokePoint(event));
       return;
@@ -355,7 +419,7 @@ async function start() {
     if (!stroke || !canvas.hasPointerCapture(event.pointerId)) return;
     const next = strokePoint(event);
     if (!next) return;
-    if (updateStroke(next, 0.047)) updateGuides();
+    if (updateStroke(next, 0.047, event.shiftKey)) updateGuides();
   });
   canvas.addEventListener('pointerleave', () => {
     if (stroke?.primitive === 'curve') refreshCurve();
@@ -373,6 +437,7 @@ async function start() {
 
   function resetStroke() {
     stroke = null;
+    rectangleCorner = null;
     curveAnchors = [];
     finishCurveButton.hidden = true;
     updatePlane();
@@ -391,9 +456,10 @@ async function start() {
     commitStroke(true);
   }
 
-  function updateStroke(next, spacing) {
+  function updateStroke(next, spacing, shift) {
     if (stroke.primitive) {
-      stroke.points = primitivePoints(stroke.primitive, strokeOrigin, next);
+      if (stroke.primitive === 'rectangle') rectangleCorner = next;
+      stroke.points = primitivePoints(stroke.primitive, strokeOrigin, next, shift);
       return true;
     }
     const last = stroke.points.at(-1);
@@ -403,9 +469,14 @@ async function start() {
   }
 
   canvas.addEventListener('pointerup', event => {
+    if (emitterDrag?.pointerId === event.pointerId) {
+      moveEmitterDrag(event);
+      finishEmitterDrag(true);
+      return;
+    }
     if (!stroke || stroke.primitive === 'curve' || !canvas.hasPointerCapture(event.pointerId)) return;
     const next = strokePoint(event);
-    if (next) updateStroke(next, 0.025);
+    if (next) updateStroke(next, 0.025, event.shiftKey);
     if (!stroke.primitive && stroke.kind !== 'line' && stroke.points.length > 2) {
       const first = stroke.points[0];
       const end = stroke.points.at(-1);
@@ -434,7 +505,8 @@ async function start() {
     resetStroke();
     updateGuides();
   }
-  canvas.addEventListener('lostpointercapture', () => {
+  canvas.addEventListener('lostpointercapture', event => {
+    if (emitterDrag?.pointerId === event.pointerId) finishEmitterDrag();
     if (!stroke || stroke.primitive === 'curve') return;
     resetStroke();
     updateGuides();
@@ -716,7 +788,19 @@ async function start() {
     }
     durationDialog.close();
   });
+  function refreshRectangleConstraint(event) {
+    if (event.key !== 'Shift' || event.repeat || stroke?.primitive !== 'rectangle' || !rectangleCorner) return;
+    updateStroke(rectangleCorner, 0, event.shiftKey);
+    updateGuides();
+  }
+  document.addEventListener('keyup', refreshRectangleConstraint);
   document.addEventListener('keydown', event => {
+    refreshRectangleConstraint(event);
+    if (event.key === 'Escape' && emitterDrag) {
+      event.preventDefault();
+      finishEmitterDrag();
+      return;
+    }
     if (event.key.toLowerCase() === 'f' && !event.repeat && !event.ctrlKey && !event.altKey && !event.metaKey &&
         !document.querySelector('dialog[open]') && !event.target.closest?.('input, select, textarea, [contenteditable]')) {
       event.preventDefault();

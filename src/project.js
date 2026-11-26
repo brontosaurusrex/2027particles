@@ -63,12 +63,16 @@ function boundedSettings(value, bounds, label) {
     [key, number(value[key], min, max, `${label} ${key}`)]));
 }
 
+function drawingShape(value, options, field) {
+  return choice(value === 'square' ? 'rectangle' : value, options, field);
+}
+
 function readEmitter(value, legacyTrails) {
   const emitter = object(value, 'emitter');
   const id = integer(emitter.id, 1, Number.MAX_SAFE_INTEGER - 1, 'emitter ID');
   const kind = choice(emitter.kind, ['line', 'outline', 'area'], 'emitter type');
   const primitive = emitter.primitive === undefined ? undefined :
-    choice(emitter.primitive, ['curve', 'circle', 'square'], 'emitter shape');
+    drawingShape(emitter.primitive, ['curve', 'circle', 'rectangle'], 'emitter shape');
   if (primitive && primitive !== 'curve' && kind === 'line') invalid('emitter shape');
   if (!Array.isArray(emitter.points) || emitter.points.length > 512) invalid('emitter path');
   const limit = primitive === 'curve' ? 90 : 72;
@@ -153,10 +157,10 @@ export function decodeProject(contents) {
       black: boolean(camera.black ?? false, 'black preview'),
     },
     editor: {
-      mode: choice(editor.mode, ['orbit', 'line', 'outline', 'area'], 'drawing mode'),
+      mode: choice(editor.mode, ['orbit', 'move', 'line', 'outline', 'area'], 'drawing mode'),
       plane: choice(editor.plane, ['xy', 'xz', 'yz', 'camera'], 'drawing plane'),
       planeOffset: number(editor.planeOffset, -12, 12, 'drawing plane offset'),
-      drawingShape: choice(editor.drawingShape ?? 'freehand', ['freehand', 'curve', 'circle', 'square'], 'drawing shape'),
+      drawingShape: drawingShape(editor.drawingShape ?? 'freehand', ['freehand', 'curve', 'circle', 'rectangle'], 'drawing shape'),
       previewQuality: choice(editor.previewQuality ?? 'auto', ['auto', 'full'], 'preview quality'),
       frameRate: choice(editor.frameRate ?? FPS, [25, FPS], 'frame rate'),
     },

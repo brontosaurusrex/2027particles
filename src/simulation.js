@@ -76,15 +76,19 @@ export function strokeDuration(emitter) {
   return emitter.kind !== 'area' && emitter.drawSpeed > 0 ? 100 / emitter.drawSpeed : Infinity;
 }
 
-export function primitivePoints(shape, [cx, cy], [x, y]) {
+export function primitivePoints(shape, [cx, cy], [x, y], constrain = false) {
   const dx = x - cx;
   const dy = y - cy;
-  if (shape === 'square') {
-    const halfSide = Math.max(Math.abs(dx), Math.abs(dy));
-    if (halfSide < 0.05) return [];
-    const a = dx < 0 ? -halfSide : halfSide;
-    const b = dy < 0 ? -halfSide : halfSide;
-    return [[a, b], [-b, a], [-a, -b], [b, -a]].map(([px, py]) => [cx + px, cy + py]);
+  if (shape === 'rectangle') {
+    const width = constrain ? Math.max(Math.abs(dx), Math.abs(dy)) : Math.abs(dx);
+    const height = constrain ? width : Math.abs(dy);
+    if (width < 0.05 || height < 0.05) return [];
+    const corners = [[-width, -height], [width, -height], [width, height], [-width, height]];
+    const start = dy < 0 ? (dx < 0 ? 0 : 1) : (dx < 0 ? 3 : 2);
+    return Array.from({ length: 4 }, (_, index) => {
+      const [px, py] = corners[(start + index) % 4];
+      return [cx + px, cy + py];
+    });
   }
   const radius = Math.hypot(dx, dy);
   if (radius < 0.05) return [];
