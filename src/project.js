@@ -1,25 +1,27 @@
 import { DEFAULT_BRIGHTNESS } from './lifetime.js';
 import {
-  EMITTER_LIMIT, FPS, FRAME_COUNT, MAX_DURATION_FRAMES, MAX_TRAIL_MS, MIN_CHIP_SIZE, emitterSettings, validateStroke,
+  EMITTER_LIMIT, FPS, FRAME_COUNT, MAX_DURATION_FRAMES, MAX_TRAIL_MS, MIN_CHIP_SIZE, PALETTES, TRAIL_DEFAULTS,
+  emitterSettings, validateStroke,
 } from './simulation.js';
 
 const FORMAT = '2027-particles';
 const VERSION = 1;
-const MAX_FILE_BYTES = 4 * 1024 * 1024;
+export const MAX_FILE_BYTES = 4 * 1024 * 1024;
 export const DEFAULT_FOCAL_LENGTH = 26;
 export const FOCAL_LENGTH_BOUNDS = [25, 200];
 export const MAX_FOCUS_DISTANCE = 300;
 
 const emitterBounds = {
   rate: [0, 400], lifetime: [0.1, 8], lifetimeVariation: [0, 100], size: [MIN_CHIP_SIZE, 0.3], sizeVariation: [0, 150],
-  speed: [0, 10], speedVariation: [0, 100], launchSpread: [0, 200], hueVariation: [0, 180], drawSpeed: [0, 100],
+  speed: [0, 10], speedVariation: [0, 200], launchSpread: [0, 200], hueVariation: [0, 180], drawSpeed: [0, 100],
   smoothing: [0, 100], rotationSpeed: [0, 360], rotationVariation: [0, 100], splitChance: [0, 100],
   burstSizeVariation: [0, 100], brightnessVariation: [0, 100], sparkleAmount: [0, 100],
+  birthScatter: [0, 1], weldingSparks: [0, 100], trail: [0, MAX_TRAIL_MS], trailWidth: [0, 300],
+  trailLengthVariation: [0, 100],
 };
 
 const effectBounds = {
-  depth: [0, 5], shutter: [0, 360], focus: [0.2, MAX_FOCUS_DISTANCE], trail: [0, MAX_TRAIL_MS],
-  trailWidth: [0, 300], trailLengthVariation: [0, 100],
+  depth: [0, 5], shutter: [0, 360], focus: [0.2, MAX_FOCUS_DISTANCE],
 };
 
 function invalid(field) {
@@ -61,7 +63,7 @@ function boundedSettings(value, bounds, label) {
     [key, number(value[key], min, max, `${label} ${key}`)]));
 }
 
-function readEmitter(value) {
+function readEmitter(value, legacyTrails) {
   const emitter = object(value, 'emitter');
   const id = integer(emitter.id, 1, Number.MAX_SAFE_INTEGER - 1, 'emitter ID');
   const kind = choice(emitter.kind, ['line', 'outline', 'area'], 'emitter type');
@@ -82,7 +84,9 @@ function readEmitter(value) {
     position: vector(emitter.position, 3, primitive === 'curve' ? -40 : -36,
       primitive === 'curve' ? 40 : 36, 'emitter position'),
     rotation: vector(emitter.rotation, 3, -360, 360, 'emitter rotation'),
-    ...boundedSettings(emitterSettings({ ...emitter, brightness }), emitterBounds, 'emitter'),
+    ...boundedSettings(emitterSettings({ ...legacyTrails, ...emitter, brightness }), emitterBounds, 'emitter'),
+    palette: choice(emitter.palette ?? 'original', Object.keys(PALETTES), 'emitter palette'),
+    trailOnly: boolean(emitter.trailOnly ?? false, 'trail only'),
     drawDirection: choice(emitter.drawDirection ?? 'as-drawn',
       ['as-drawn', 'reverse', 'clockwise', 'counterclockwise'], 'draw direction'),
     brightness,
@@ -112,7 +116,9 @@ export function decodeProject(contents) {
   }
 
   if (!Array.isArray(project.emitters) || project.emitters.length > EMITTER_LIMIT) invalid('emitters');
-  const emitters = project.emitters.map(readEmitter);
+  const effects = object(project.effects, 'camera effects');
+  const legacyTrails = Object.fromEntries(Object.keys(TRAIL_DEFAULTS).map(key => [key, effects[key] ?? TRAIL_DEFAULTS[key]]));
+  const emitters = project.emitters.map(emitter => readEmitter(emitter, legacyTrails));
   const ids = new Set(emitters.map(emitter => emitter.id));
   if (ids.size !== emitters.length) invalid('emitter IDs');
   const selectedEmitterId = project.selectedEmitterId;
@@ -122,7 +128,6 @@ export function decodeProject(contents) {
   const nextEmitterId = integer(project.nextEmitterId, Math.max(0, ...ids) + 1, Number.MAX_SAFE_INTEGER, 'next emitter ID');
 
   const forces = object(project.forces, 'forces');
-  const effects = object(project.effects, 'camera effects');
   const camera = object(project.camera, 'camera');
   const editor = object(project.editor, 'editor');
   const playback = object(project.playback, 'playback');
@@ -139,11 +144,15 @@ export function decodeProject(contents) {
       wind: vector(forces.wind, 3, -8, 8, 'wind'),
       seed: integer(forces.seed, 0, 4294967295, 'seed'),
     },
-    effects: boundedSettings(effects, effectBounds, 'camera effect'),
+    effects: {
+      ...boundedSettings(effects, effectBounds, 'camera effect'),
+      dofMode: choice(effects.dofMode ?? 'blur', ['blur', 'dim'], 'DOF mode'),
+    },
     camera: {
       position, target,
       focalLength: number(camera.focalLength, ...FOCAL_LENGTH_BOUNDS, 'focal length'),
       winter: boolean(camera.winter, 'winter backdrop'),
+      black: boolean(camera.black ?? false, 'black preview'),
     },
     editor: {
       mode: choice(editor.mode, ['orbit', 'line', 'outline', 'area'], 'drawing mode'),
@@ -160,7 +169,9 @@ export function decodeProject(contents) {
       loop: boolean(playback.loop, 'loop setting'),
       playing: boolean(playback.playing, 'playback state'),
     },
-    exportBackground: choice(project.exportBackground, ['transparent', 'winter'], 'export background'),
+    exportBackground: choice(project.exportBackground, ['transparent', 'winter', 'black'], 'export background'),
+    exportFormat: choice(project.exportFormat ?? 'png', ['png', 'prores', 'cineform'], 'export format'),
+    printBackground: choice(project.printBackground ?? 'transparent', ['transparent', 'black'], 'print background'),
     exportDofSampling: {
       print: choice(sampling.print ?? 'full', ['preview', 'full'], 'print DOF sampling'),
       sequence: choice(sampling.sequence ?? 'full', ['preview', 'full'], 'sequence DOF sampling'),

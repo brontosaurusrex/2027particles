@@ -11,11 +11,12 @@ SYMBOLS = {
     "star": "★",
     "snowflake": "❄",
     "circle": "●",
-    "plus": "✚",
     "sparkle": "✦",
     "flower": "✿",
     "lightning": "⚡",
-    "ring": "○",
+    "diamond": "◆",
+    "triangle": "▲",
+    "crescent": "⏾",
 }
 
 

@@ -1,0 +1,5 @@
+The MOV encoder includes an unmodified FFmpeg 7.1.2 library build under LGPL 2.1 or later.
+Download the exact corresponding FFmpeg source as ffmpeg-7.1.2.tar.xz alongside this file on the hosted editor. Upstream: https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz
+The editor's encoding bridge is scripts/movie-encoder.c and the reproducible build is
+scripts/build-movie-encoder.sh in https://github.com/brontosaurusrex/2027particles.
+Use Emscripten 4.0.20 and the build script to rebuild or relink with modified FFmpeg.

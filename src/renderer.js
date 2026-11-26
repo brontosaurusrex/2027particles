@@ -1,9 +1,10 @@
 import * as THREE from 'three/webgpu';
-import { attribute, hue, mix, output, renderOutput, texture, uniform, uv, vec4 } from 'three/tsl';
+import { attribute, mix, output, renderOutput, texture, uniform, uv, vec4 } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { chipGeometries } from './chips.js';
-import { CAPACITY, STEP } from './simulation.js';
+import { CAPACITY, FPS, STEP } from './simulation.js';
 import { MotionTrails } from './trails.js';
+import { colorWithPalette, particleTint } from './palette-color.js';
 import { brightnessAt, DEFAULT_BRIGHTNESS } from './lifetime.js';
 
 export const WIDTH = 1920;
@@ -14,7 +15,7 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 function setLifetimeAppearance(material) {
   const appearance = attribute('lifetimeAppearance', 'vec3');
   material.opacityNode = appearance.x;
-  material.outputNode = vec4(hue(output.rgb, appearance.z).mul(appearance.y), output.a);
+  material.outputNode = vec4(colorWithPalette(output.rgb, appearance.z).mul(appearance.y), output.a);
   return material;
 }
 
@@ -38,6 +39,7 @@ class ParticleRenderer {
     this.sampleCamera = this.camera.clone();
     this.object = new THREE.Object3D();
     this.spinAxis = new THREE.Vector3();
+    this.effectPosition = new THREE.Vector3();
 
     const mainLight = new THREE.DirectionalLight(0xffe1a7, 3.6);
     mainLight.position.set(-4, 6, 4);
@@ -92,7 +94,8 @@ class ParticleRenderer {
     const distance = uv().sub(0.5).length().mul(1.4).clamp(0, 1);
     const studio = mix(uniform(new THREE.Color(0x2c2532)), uniform(new THREE.Color(0x10141e)), distance);
     const sky = texture(this.sky.texture).rgb;
-    const background = mix(studio, sky, this.backdropMode.sub(1).max(0));
+    const background = mix(studio, sky, this.backdropMode.sub(1).clamp(0, 1))
+      .mul(this.backdropMode.sub(2).clamp(0, 1).oneMinus());
     const alpha = sceneColor.a.clamp(0, 1);
     const opaque = this.backdropMode.min(1);
     const linear = mix(sceneColor.rgb.div(alpha.max(0.0001)), sceneColor.rgb.add(background.mul(alpha.oneMinus())), opaque);
@@ -119,6 +122,8 @@ class ParticleRenderer {
   createBatch(geometry, material) {
     const appearance = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 3), 3);
     geometry.setAttribute('lifetimeAppearance', appearance.setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute('paletteTint',
+      new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 3), 3).setUsage(THREE.DynamicDrawUsage));
     const mesh = new THREE.InstancedMesh(geometry, material, CAPACITY);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.setColorAt(0, new THREE.Color(1, 1, 1));
@@ -140,10 +145,15 @@ class ParticleRenderer {
       const lifeScale = Math.min(1, (lifetime - age) * 7 + 0.12);
       const lifeProgress = age / lifetime;
       const opacity = THREE.MathUtils.smoothstep(1 - lifeProgress, 0, 0.75);
-      const brightness = brightnessAt(particle.brightness ?? DEFAULT_BRIGHTNESS, lifeProgress) * particle.brightnessScale;
+      let brightness = brightnessAt(particle.brightness ?? DEFAULT_BRIGHTNESS, lifeProgress) * particle.brightnessScale;
       const angle = particle.hue ?? 0;
       object.position.lerpVectors(particle.previous, particle.position, fraction);
+      if (effects.dofMode === 'dim' && effects.depth > 0) {
+        const depth = -this.effectPosition.copy(object.position).applyMatrix4(camera.matrixWorldInverse).z;
+        brightness *= Math.exp(-effects.depth * Math.abs(depth - effects.focus) / effects.focus);
+      }
       trails.add(particle, object.position, time, lifeScale, opacity, brightness);
+      if (particle.style?.trailOnly) return;
       object.rotation.set(...rotation);
       this.spinAxis.fromArray(spin);
       const spinSpeed = this.spinAxis.length();
@@ -152,9 +162,11 @@ class ParticleRenderer {
       object.updateMatrix();
       const mesh = chips[particle.shape];
       const index = mesh.count++;
+      const tint = particleTint(particle);
       mesh.setMatrixAt(index, object.matrix);
       mesh.setColorAt(index, GOLD[particle.shade]);
       mesh.geometry.attributes.lifetimeAppearance.setXYZ(index, opacity, brightness, angle);
+      mesh.geometry.attributes.paletteTint.setXYZ(index, ...tint);
 
       const pulse = particle.glint ? Math.sin(particle.phase + age * particle.flashRate) : 0;
       if (pulse > 0.79) {
@@ -172,6 +184,7 @@ class ParticleRenderer {
         this.sparkColor.setRGB(6 * pulse, 3.25 * pulse, 1.15 * pulse);
         sparks.setColorAt(sparkle, this.sparkColor);
         sparks.geometry.attributes.lifetimeAppearance.setXYZ(sparkle, opacity, brightness, angle);
+        sparks.geometry.attributes.paletteTint.setXYZ(sparkle, ...tint);
       }
     });
     trails.finish();
@@ -181,9 +194,10 @@ class ParticleRenderer {
       batch.instanceMatrix.needsUpdate = true;
       batch.instanceColor.addUpdateRange(0, batch.count * 3);
       batch.instanceColor.needsUpdate = true;
-      const appearance = batch.geometry.attributes.lifetimeAppearance;
-      appearance.addUpdateRange(0, batch.count * 3);
-      appearance.needsUpdate = true;
+      for (const attribute of [batch.geometry.attributes.lifetimeAppearance, batch.geometry.attributes.paletteTint]) {
+        attribute.addUpdateRange(0, batch.count * 3);
+        attribute.needsUpdate = true;
+      }
     }
   }
 
@@ -205,11 +219,12 @@ class ParticleRenderer {
 
   draw(simulation, frame, camera, settings, width, height, options) {
     const { renderer, samples, accumulation, sky, output } = this;
-    const { exporting, sampleCount, winter, overlay } = options;
-    const count = settings.depth || settings.shutter ? sampleCount : 1;
+    const { exporting, sampleCount, winter, black, overlay, frameRate = FPS } = options;
+    const blur = settings.dofMode !== 'dim' && settings.depth;
+    const count = blur || settings.shutter ? sampleCount : 1;
     const focus = Math.max(camera.near * 2, settings.focus);
-    const aperture = focus * settings.depth * 0.007;
-    const exposure = STEP * settings.shutter / 360;
+    const aperture = focus * blur * 0.007;
+    const exposure = settings.shutter / (360 * frameRate);
     if (!exporting && (renderer.domElement.width !== width || renderer.domElement.height !== height)) {
       renderer.setSize(width, height, false);
     }
@@ -221,11 +236,11 @@ class ParticleRenderer {
       camera.updateProjectionMatrix();
     }
     camera.updateMatrixWorld(true);
-    simulation.seek(frame);
+    if (exposure <= STEP) simulation.seek(frame);
 
     renderer.autoClear = true;
     renderer.setClearColor(0, 0);
-    if (winter) {
+    if (winter && !black) {
       const key = [width, height, ...camera.quaternion.toArray(), camera.fov].join(',');
       if (key !== this.skyKey) {
         sky.setSize(Math.min(width, 960), Math.min(height, 540));
@@ -242,8 +257,10 @@ class ParticleRenderer {
     renderer.clear();
     this.weight.value = 1 / count;
     for (let index = 0; index < count; index++) {
-      const fraction = (index + 0.5) / count;
+      const temporalIndex = exposure > STEP ? count - 1 - index : index;
+      const fraction = (temporalIndex + 0.5) / count;
       const time = frame * STEP - exposure * fraction;
+      if (exposure > STEP) simulation.seek(Math.max(1, Math.ceil(time / STEP)));
       const radius = count === 1 ? 0 : Math.sqrt(((index * (count - 1)) % count + 0.5) / count);
       const sampled = this.setLensSample(camera, focus, aperture, radius, index * GOLDEN_ANGLE);
       this.updateInstances(simulation, time, sampled, settings);
@@ -257,7 +274,7 @@ class ParticleRenderer {
 
     renderer.autoClear = true;
     renderer.setRenderTarget(exporting ? output : null);
-    this.backdropMode.value = winter ? 2 : Number(!exporting);
+    this.backdropMode.value = black ? 3 : winter ? 2 : Number(!exporting);
     this.composite.render(renderer);
     if (overlay) {
       renderer.autoClear = false;

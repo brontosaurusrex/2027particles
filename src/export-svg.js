@@ -1,6 +1,7 @@
 import { Color, Matrix4, Vector3 } from 'three/webgpu';
 import { WIDTH, HEIGHT } from './renderer.js';
 import { STEP } from './simulation.js';
+import { tintVectorColor } from './palette-color.js';
 
 const keyLight = new Vector3(-4, 6, 4).normalize();
 const rimLight = new Vector3(5, 1, -4).normalize();
@@ -112,10 +113,12 @@ function vectorParticles(batches, camera, glints = false) {
       if (glints) {
         const shape = projectPolygon(outline.map(([x, y]) => new Vector3(x, y, 0).applyMatrix4(view)), camera);
         if (!shape) continue;
-        const fill = rotateHue(color.multiply(glintGold), angle).multiplyScalar(brightness * 0.65).getHexString();
+        const tinted = tintVectorColor(color.multiply(glintGold), batch.geometry.attributes.paletteTint, index);
+        const fill = rotateHue(tinted, angle).multiplyScalar(brightness * 0.65).getHexString();
         contents = `<path fill="#${fill}" d="${pathData(shape)}"/>`;
       } else {
-        contents = chipFaces(faces, halfDepth, world, view, camera, rotateHue(color, angle), brightness);
+        const tinted = tintVectorColor(color, batch.geometry.attributes.paletteTint, index);
+        contents = chipFaces(faces, halfDepth, world, view, camera, rotateHue(tinted, angle), brightness);
       }
       const shape = symbol ? ` data-shape="${symbol}"` : '';
       if (contents) groups.push({ z: view.elements[14], svg: `<g${shape} opacity="${alpha(opacity)}">${contents}</g>` });
@@ -136,7 +139,7 @@ function vectorTrails(trails, camera) {
     const path = projectPolygon(corners, camera);
     if (!path) continue;
     const brightness = trails.appearance.getY(index);
-    const color = rotateHue(trailGold.clone(), trails.appearance.getZ(index))
+    const color = rotateHue(tintVectorColor(trailGold.clone(), trails.tint, index), trails.appearance.getZ(index))
       .multiplyScalar(brightness * 1.45).getHexString();
     if (corners.some(point => point.z > -camera.near || point.z < -camera.far)) {
       paths.push(`<path fill="#${color}" opacity="${alpha((frontAlpha + backAlpha) / 2)}" d="${pathData(path)}"/>`);

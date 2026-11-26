@@ -22,6 +22,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Include corresponding FFmpeg source
+        run: |
+          curl --fail --silent --show-error --location --retry 3 https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz -o dist/video/ffmpeg-7.1.2.tar.xz
+          printf '%s  %s\n' 089bc60fb59d6aecc5d994ff530fd0dcb3ee39aa55867849a2bbc4e555f9c304 dist/video/ffmpeg-7.1.2.tar.xz | sha256sum -c
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist

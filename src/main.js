@@ -3,14 +3,17 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createRenderer, WIDTH, HEIGHT } from './renderer.js';
 import {
-  EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_DURATION_FRAMES, MAX_TRAIL_MS, MIN_CHIP_SIZE, STEP, Simulation,
+  EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_DURATION_FRAMES, MAX_TRAIL_MS, MIN_CHIP_SIZE, PALETTES, STEP, Simulation,
   createEmitter, curvePoints, emitterRotation, emitterSettings, frameAtRate, frameCountAtRate, outlineDirection,
   polygonFaces, positionOnStroke, primitivePoints, simulationFrameAtRate, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
-import { ARCHIVE_NAME, FULL_DOF_SAMPLES, chooseDestination, discardDestination, renderArchive, renderPrintFrame } from './export.js';
+import {
+  ARCHIVE_NAME, FULL_DOF_SAMPLES, chooseDestination, discardDestination, renderArchive, renderPrintFrame, temporaryExport,
+} from './export.js';
 import { renderVectorFrame } from './export-svg.js';
 import { mountBrightnessEditor } from './brightness-editor.js';
 import { mountProjectSlots } from './project-slots.js';
+import { createShareLink, readShareLink } from './share.js';
 import {
   DEFAULT_FOCAL_LENGTH, FOCAL_LENGTH_BOUNDS, MAX_FOCUS_DISTANCE, encodeProject, readProject,
 } from './project.js';
@@ -36,7 +39,7 @@ async function start() {
   const orbit = new OrbitControls(camera, renderer.domElement);
 
   const forces = { gravity: 2.2, wind: [0.35, 0, -0.20], turbulence: 0.90, drag: 1.5, seed: 2027 };
-  const effects = { depth: 1, shutter: 90, focus: 9.6, trail: 110, trailWidth: 100, trailLengthVariation: 0 };
+  const effects = { depth: 1, shutter: 90, focus: 9.6, dofMode: 'blur' };
   const demo = createEmitter(1, 'line', [
     [-2.4, -0.36], [-1.7, -0.12], [-1.05, 0.15], [-0.45, 0.22], [0.2, 0.17],
     [0.85, -0.01], [1.6, -0.25], [2.35, -0.54],
@@ -58,6 +61,7 @@ async function start() {
   let dirty = true;
   let ready = false;
   let winter = false;
+  let black = false;
   let focalLength = DEFAULT_FOCAL_LENGTH;
   let previewFullscreen = false;
   let mode = 'orbit';
@@ -279,13 +283,15 @@ async function start() {
   const viewport = $('viewport');
   const fullscreen = $('fullscreen');
   fullscreen.disabled = !document.fullscreenEnabled;
-  fullscreen.addEventListener('click', async () => {
+  async function toggleFullscreen() {
     try {
-      await viewport.requestFullscreen();
+      if (document.fullscreenElement === viewport) await document.exitFullscreen();
+      else await viewport.requestFullscreen();
     } catch {
       $('hint').textContent = 'Fullscreen is unavailable in this browser window.';
     }
-  });
+  }
+  fullscreen.addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', () => {
     const active = document.fullscreenElement === viewport;
     if (previewFullscreen === active) return;
@@ -454,6 +460,7 @@ async function start() {
     $('emitter-controls').hidden = !selected;
     soloButton.setAttribute('aria-pressed', String(soloEmitterId === selected?.id));
     muteButton.setAttribute('aria-pressed', String(!!selected?.muted));
+    $('duplicate-emitter').disabled = emitters.length >= EMITTER_LIMIT;
   }
 
   function updateInspector() {
@@ -461,12 +468,26 @@ async function start() {
     if (!selected) return;
     const emission = $('emission');
     emission.replaceChildren();
+    const palette = document.createElement('select');
+    palette.setAttribute('aria-label', 'Palette');
+    palette.replaceChildren(...Object.entries(PALETTES).map(([value, { label }]) => new Option(label, value)));
+    palette.value = selected.palette;
+    palette.addEventListener('change', () => {
+      selected.palette = palette.value;
+      invalidateSimulation();
+    });
+    const paletteRow = document.createElement('label');
+    paletteRow.className = 'select-row';
+    paletteRow.append('Palette', palette);
+    emission.append(paletteRow);
     for (const [label, key, min, max, step, suffix, title] of [
       ['Rate / sec', 'rate', 0, 400, 1], ['Lifetime (s)', 'lifetime', 0.1, 8, 0.1],
       ['Lifetime variation', 'lifetimeVariation', 0, 100, 1, '%'],
       ['Chip size', 'size', MIN_CHIP_SIZE, 0.3, 0.001], ['Size variation', 'sizeVariation', 0, 150, 1, '%'],
       ['Launch speed', 'speed', 0, 10, 0.1],
-      ['Speed variation', 'speedVariation', 0, 100, 1, '%', 'Random variation above and below the launch speed.'],
+      ['Speed variation', 'speedVariation', 0, 200, 1, '%', 'Random variation above and below launch speed, with a minimum of zero.'],
+      ['Birth scatter', 'birthScatter', 0, 1, 0.01],
+      ['Welding sparks', 'weldingSparks', 0, 100, 1, '%', 'Chance to spawn a tiny, short-lived spark at each birth.'],
       ['Launch spread', 'launchSpread', 0, 200, 1, '%', '0% is a jet. 100% is the default spread.'],
       ['Hue variation', 'hueVariation', 0, 180, 1, '°'],
       ['Brightness variation', 'brightnessVariation', 0, 100, 1, '%', 'Varies the brightness of each particle across its lifetime.'],
@@ -474,7 +495,10 @@ async function start() {
       ['Rotation speed', 'rotationSpeed', 0, 360, 1, '°/s'],
       ['Rotation variation', 'rotationVariation', 0, 100, 1, '%'],
       ['Split chance', 'splitChance', 0, 100, 1, '%'],
-      ['Burst size variation', 'burstSizeVariation', 0, 100, 1, '%', 'Each split makes six sparks at 0%, or two to eight at 100%.'],
+      ['Burst size variation', 'burstSizeVariation', 0, 100, 1, '%', 'Each split makes six sparks at 0%, or six to nine at 100%.'],
+      ['Trail length', 'trail', 0, MAX_TRAIL_MS, 10, ' ms'],
+      ['Trail width', 'trailWidth', 0, 300, 1, '%'],
+      ['Trail length variation', 'trailLengthVariation', 0, 100, 1, '%'],
     ]) {
       const { input } = range(emission, label, min, max, step, selected[key], value => {
         selected[key] = value;
@@ -482,6 +506,17 @@ async function start() {
       }, suffix, emitterDefaults[key]);
       if (title) input.title = title;
     }
+    const trailOnly = document.createElement('input');
+    trailOnly.type = 'checkbox';
+    trailOnly.checked = selected.trailOnly;
+    trailOnly.addEventListener('change', () => {
+      selected.trailOnly = trailOnly.checked;
+      invalidateSimulation();
+    });
+    const trailRow = document.createElement('label');
+    trailRow.className = 'check';
+    trailRow.append(trailOnly, 'Trail only');
+    emission.append(trailRow);
     if (selected.kind !== 'area') {
       if (!selected.primitive) {
         range(emission, 'Smoothing', 0, 100, 1, selected.smoothing, value => {
@@ -553,6 +588,14 @@ async function start() {
     selected.muted = !selected.muted;
     updateEmitterVisibility();
   });
+  $('duplicate-emitter').addEventListener('click', () => {
+    if (!selected || emitters.length >= EMITTER_LIMIT) return;
+    selected = { ...structuredClone(selected), id: nextId++ };
+    emitters.push(selected);
+    updateInspector();
+    updateGuides();
+    invalidateSimulation();
+  });
   $('delete-emitter').addEventListener('click', () => {
     if (!selected) return;
     if (soloEmitterId === selected.id) soloEmitterId = null;
@@ -583,12 +626,20 @@ async function start() {
     syncFocusRange();
   }, ' mm');
   const effectFields = settingsRanges(cameraPanel, effects, [
-    ['depth', 'Depth of field', 0, 5, 0.1], ['shutter', 'Shutter angle', 0, 360, 1, '°'],
-    ['trail', 'Trail length', 0, MAX_TRAIL_MS, 10, ' ms'],
-    ['trailWidth', 'Trail width', 0, 300, 1, '%'],
-    ['trailLengthVariation', 'Trail length variation', 0, 100, 1, '%'],
+    ['depth', 'Depth of field', 0, 5, 0.1],
   ], () => { dirty = true; });
-  effectFields[0].input.title = 'Higher values soften particles in front of and behind the focus distance.';
+  effectFields[0].input.title = 'Controls the strength of Blur or Dim away from the focus distance.';
+  const shutterField = range(cameraPanel, 'Shutter angle', 0, 360, 1, effects.shutter, value => {
+    effects.shutter = value;
+    syncShutterReadout();
+    dirty = true;
+  }, '°');
+  function syncShutterReadout() {
+    const ms = Number((effects.shutter * 1000 / (360 * activeRate)).toFixed(2));
+    shutterField.input.parentElement.querySelector('output').value = `${effects.shutter}° · ${ms} ms`;
+    shutterField.input.title = `${ms} ms of motion exposure at ${activeRate} fps`;
+  }
+  syncShutterReadout();
   const focus = range(cameraPanel, 'Focus distance', 0.2, 40, 0.1, effects.focus, value => {
     effects.focus = value;
     dirty = true;
@@ -602,6 +653,16 @@ async function start() {
   orbit.addEventListener('change', syncFocusRange);
   $('winter').addEventListener('change', event => {
     winter = event.target.checked;
+    if (winter) black = $('black-preview').checked = false;
+    dirty = true;
+  });
+  $('black-preview').addEventListener('change', event => {
+    black = event.target.checked;
+    if (black) winter = $('winter').checked = false;
+    dirty = true;
+  });
+  $('dof-mode').addEventListener('change', event => {
+    effects.dofMode = event.target.value;
     dirty = true;
   });
   updateInspector();
@@ -660,6 +721,12 @@ async function start() {
     durationDialog.close();
   });
   document.addEventListener('keydown', event => {
+    if (event.key.toLowerCase() === 'f' && !event.repeat && !event.ctrlKey && !event.altKey && !event.metaKey &&
+        !document.querySelector('dialog[open]') && !event.target.closest?.('input, select, textarea, [contenteditable]')) {
+      event.preventDefault();
+      if (!fullscreen.disabled) toggleFullscreen();
+      return;
+    }
     if (previewFullscreen && event.key === 'Escape' && document.fullscreenElement === viewport) {
       event.preventDefault();
       document.exitFullscreen().catch(() => {});
@@ -703,6 +770,7 @@ async function start() {
   previewQuality.addEventListener('change', resetQuality);
   function syncTimeline() {
     frameCount = frameCountAtRate(durationFrames, activeRate);
+    syncShutterReadout();
     timeline.max = frameCount;
     timelineLength.textContent = frameCount;
     $('timeline-rate').textContent = `${activeRate} fps`;
@@ -742,7 +810,7 @@ async function start() {
     const full = previewQuality.value === 'full';
     const adaptive = playing && !full;
     const [scale, sampleCount] = profiles[adaptive ? quality : 0];
-    const previewSamples = effects.depth >= 2.5 ? (playing ? sampleCount * 2 : 16) : sampleCount;
+    const previewSamples = effects.dofMode === 'blur' && effects.depth >= 2.5 ? (playing ? sampleCount * 2 : 16) : sampleCount;
     const maxWidth = full ? WIDTH * 2 : WIDTH;
     const pixelRatio = full ? devicePixelRatio : Math.min(devicePixelRatio, 1.5);
     const width = Math.max(128, Math.round(Math.min(stage.clientWidth * pixelRatio, maxWidth) * scale));
@@ -752,7 +820,7 @@ async function start() {
     const simulationFrame = simulationFrameAtRate(frame, rate);
     if (showGuides) updateGuideProgress(simulationFrame);
     view.draw(simulation, simulationFrame, camera, effects, width, height, {
-      exporting: false, sampleCount: previewSamples, winter, overlay: showGuides ? guides : null,
+      exporting: false, sampleCount: previewSamples, winter, black, frameRate: rate, overlay: showGuides ? guides : null,
     });
     lastPreviewSamples = previewSamples;
     if (width !== lastWidth) {
@@ -786,9 +854,18 @@ async function start() {
   const done = $('download');
   const printButton = $('export-print');
   const exportBackground = $('export-background');
+  const exportFormat = $('export-format');
   const projectFile = $('project-file');
   const projectStatus = $('project-status');
   let previewSamplesAtOpen;
+
+  function syncExportFormat() {
+    const movie = exportFormat.value !== 'png';
+    exportBackground.closest('label').hidden = movie;
+    $('movie-background').hidden = !movie;
+    $('start-export').textContent = movie ? 'Export MOV' : 'Export ZIP';
+  }
+  exportFormat.addEventListener('change', syncExportFormat);
 
   for (const select of [printSampling, sequenceSampling]) {
     select.querySelector('[value="full"]').textContent = `Export quality (${FULL_DOF_SAMPLES} samples)`;
@@ -796,7 +873,7 @@ async function start() {
 
   function openExportDialog(dialog, select) {
     previewSamplesAtOpen = lastPreviewSamples;
-    select.closest('label').hidden = effects.depth === 0;
+    select.closest('label').hidden = effects.depth === 0 || effects.dofMode === 'dim';
     select.querySelector('[value="preview"]').textContent =
       `Match preview (${previewSamplesAtOpen} samples)`;
     pause();
@@ -812,7 +889,7 @@ async function start() {
       emitters, selectedEmitterId: selected?.id ?? null, soloEmitterId, nextEmitterId: nextId,
       forces, effects,
       camera: {
-        position: camera.position.toArray(), target: orbit.target.toArray(), focalLength, winter,
+        position: camera.position.toArray(), target: orbit.target.toArray(), focalLength, winter, black,
       },
       editor: {
         mode, plane: drawingPlane.value, planeOffset: Number(planeOffset.value),
@@ -821,6 +898,8 @@ async function start() {
       },
       playback: { frame: simulationFrameAtRate(frame, activeRate), durationFrames, playing, loop: loop.checked },
       exportBackground: exportBackground.value,
+      exportFormat: exportFormat.value,
+      printBackground: $('print-background').value,
       exportDofSampling: { print: printSampling.value, sequence: sequenceSampling.value },
     };
   }
@@ -834,6 +913,21 @@ async function start() {
     downloadFile(json, 'application/json', '2027-particles.project.json');
   });
   $('load-project').addEventListener('click', () => projectFile.click());
+  $('share-project').addEventListener('click', async () => {
+    try {
+      const url = await createShareLink(captureProject(), location.href);
+      try {
+        await navigator.clipboard.writeText(url);
+        projectStatus.textContent = 'Share link copied.';
+      } catch {
+        window.prompt('Copy this project link', url);
+        projectStatus.textContent = 'Share link ready.';
+      }
+    } catch (error) {
+      projectStatus.textContent = error.message;
+    }
+    projectStatus.hidden = false;
+  });
   projectFile.addEventListener('change', async () => {
     const file = projectFile.files[0];
     projectFile.value = '';
@@ -858,6 +952,8 @@ async function start() {
     Object.assign(forces, savedForces);
     forces.wind.splice(0, 3, ...wind);
     Object.assign(effects, project.effects);
+    shutterField.setValue(effects.shutter);
+    $('dof-mode').value = effects.dofMode;
     forceFields.forEach(field => field.sync());
     seedField.setValue(forces.seed);
     effectFields.forEach(field => field.sync());
@@ -869,7 +965,12 @@ async function start() {
     syncFocusRange();
     winter = project.camera.winter;
     $('winter').checked = winter;
+    black = project.camera.black;
+    $('black-preview').checked = black;
     exportBackground.value = project.exportBackground;
+    exportFormat.value = project.exportFormat;
+    syncExportFormat();
+    $('print-background').value = project.printBackground;
     printSampling.value = project.exportDofSampling.print;
     sequenceSampling.value = project.exportDofSampling.sequence;
 
@@ -939,6 +1040,8 @@ async function start() {
       frame: simulationFrameAtRate(frameNumber, activeRate),
       camera: camera.clone(),
       effects: { ...effects },
+      frameRate: activeRate,
+      black: $('print-background').value === 'black',
       dofSamples: chosenDofSamples(printSampling),
       forces: structuredClone(forces),
       emitters: structuredClone(emitters),
@@ -990,7 +1093,10 @@ async function start() {
     const signal = exporting.signal;
     const rate = activeRate;
     const count = frameCount;
+    const format = exportFormat.value;
+    const movie = format !== 'png';
     $('start-export').disabled = true;
+    exportFormat.disabled = true;
     $('close-export').textContent = 'Cancel';
     $('export-background').disabled = true;
     sequenceSampling.disabled = true;
@@ -1017,25 +1123,31 @@ async function start() {
         emitters: structuredClone(emitters),
         visibleEmitterIds: visibleEmitterIds(),
         winter: $('export-background').value === 'winter',
+        black: $('export-background').value === 'black',
       };
-      const filename = ARCHIVE_NAME.replace('.zip', `${emitterFileSuffix(snapshot.visibleEmitterIds)}.zip`);
-      destination = await chooseDestination(filename);
+      const suffix = emitterFileSuffix(snapshot.visibleEmitterIds);
+      const filename = ARCHIVE_NAME.replace('.zip', movie ? `${suffix}_${format}.mov` : `${suffix}.zip`);
+      destination = movie ? await temporaryExport('mov') : await chooseDestination(filename);
       signal.throwIfAborted();
       progress.hidden = false;
       exportStatus.hidden = false;
       exportStatus.textContent = `Rendering frame 1 of ${count}…`;
-      const file = await renderArchive(view, snapshot, destination, signal, rendered => {
+      const onProgress = rendered => {
         progress.value = rendered;
         exportStatus.textContent = `Rendered ${rendered} of ${count} frames`;
-      });
+      };
+      const file = movie
+        ? await (await import('./movie.js')).renderMovie(view, snapshot, destination, format, signal, onProgress)
+        : await renderArchive(view, snapshot, destination, signal, onProgress);
       if (file) {
         downloadDestination = destination;
         downloadURL = URL.createObjectURL(file);
         done.href = downloadURL;
         done.download = filename;
+        done.textContent = movie ? 'Download MOV' : 'Download ZIP';
         done.hidden = false;
       }
-      exportStatus.textContent = file ? 'The ZIP is ready to download.' : 'The ZIP was saved.';
+      exportStatus.textContent = file ? `The ${movie ? 'MOV' : 'ZIP'} is ready to download.` : 'The ZIP was saved.';
     } catch (error) {
       await discardDestination(destination).catch(() => {});
       exportStatus.hidden = false;
@@ -1045,6 +1157,7 @@ async function start() {
     } finally {
       exporting = null;
       $('start-export').disabled = false;
+      exportFormat.disabled = false;
       $('close-export').textContent = 'Close';
       $('export-background').disabled = false;
       sequenceSampling.disabled = false;
@@ -1060,7 +1173,15 @@ async function start() {
     $('export-background').querySelector('option[value=winter]').disabled = true;
     $('hint').textContent = 'Could not load winter lighting. You can still preview and export sparks.';
   }
-  if (!await restoreLastSlot()) play();
+  let sharedProject;
+  try {
+    sharedProject = await readShareLink(location.hash);
+  } catch {
+    projectStatus.textContent = 'Could not open the shared project.';
+    projectStatus.hidden = false;
+  }
+  if (sharedProject) restoreProject(sharedProject);
+  else if (!await restoreLastSlot()) play();
   status.textContent = view.isWebGL ? 'WebGL 2' : 'WebGPU';
   ready = true;
   $('export').disabled = false;
@@ -1068,6 +1189,7 @@ async function start() {
   printButton.disabled = false;
   $('save-project').disabled = false;
   $('load-project').disabled = false;
+  $('share-project').disabled = false;
   $('project-slots').disabled = false;
 }
 

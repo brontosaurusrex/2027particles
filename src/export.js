@@ -9,7 +9,7 @@ const PRINT_HEIGHT = HEIGHT * 2;
 const PRINT_PPI = 300;
 
 function exportSamples(snapshot) {
-  return snapshot.effects.depth > 0 ? (snapshot.dofSamples ?? FULL_DOF_SAMPLES) : 16;
+  return snapshot.effects.depth > 0 && snapshot.effects.dofMode !== 'dim' ? (snapshot.dofSamples ?? FULL_DOF_SAMPLES) : 16;
 }
 
 export async function renderPrintFrame(view, snapshot, signal, onProgress) {
@@ -25,7 +25,7 @@ export async function renderPrintFrame(view, snapshot, signal, onProgress) {
       signal.throwIfAborted();
       camera.setViewOffset(PRINT_WIDTH, PRINT_HEIGHT, x, y, WIDTH, HEIGHT);
       view.draw(simulation, snapshot.frame, camera, snapshot.effects, WIDTH, HEIGHT, {
-        exporting: true, sampleCount, winter: false,
+        exporting: true, sampleCount, black: snapshot.black, frameRate: snapshot.frameRate,
       });
       const tile = await view.readImage();
       signal.throwIfAborted();
@@ -35,38 +35,59 @@ export async function renderPrintFrame(view, snapshot, signal, onProgress) {
   }
   const png = await canvas.convertToBlob({ type: 'image/png' });
   signal.throwIfAborted();
-  return setPrintResolution(png);
+  return pngWithMetadata(png, PRINT_PPI);
 }
 
-// PNG stores physical resolution as pixels per metre in a pHYs chunk before image data.
-async function setPrintResolution(png) {
-  const physical = 0x70485973; // pHYs
-  const imageData = 0x49444154; // IDAT
-  const pixelsPerMetre = Math.round(PRINT_PPI / 0.0254);
-  const bytes = new Uint8Array(21);
+function pngChunk(type, data) {
+  const bytes = new Uint8Array(12 + data.length);
   const chunk = new DataView(bytes.buffer);
-  chunk.setUint32(0, 9);
-  chunk.setUint32(4, physical);
-  chunk.setUint32(8, pixelsPerMetre);
-  chunk.setUint32(12, pixelsPerMetre);
-  bytes[16] = 1;
+  chunk.setUint32(0, data.length);
+  chunk.setUint32(4, type);
+  bytes.set(data, 8);
   let crc = 0xffffffff;
-  for (const byte of bytes.subarray(4, 17)) {
+  for (const byte of bytes.subarray(4, 8 + data.length)) {
     crc ^= byte;
     for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
   }
-  chunk.setUint32(17, (crc ^ 0xffffffff) >>> 0);
+  chunk.setUint32(8 + data.length, (crc ^ 0xffffffff) >>> 0);
+  return bytes;
+}
+
+const SRGB = 0x73524742;
+const PHYS = 0x70485973;
+const colorChunks = new Set([SRGB, 0x69434350, 0x67414d41, 0x6348524d, 0x63494350]);
+const srgbChunk = pngChunk(SRGB, Uint8Array.of(0));
+
+async function pngWithMetadata(png, ppi) {
+  // The encoder receives sRGB canvas pixels. Use one unambiguous color declaration.
+  const parts = [png.slice(0, 8)];
   for (let offset = 8; offset + 8 <= png.size;) {
     const header = new DataView(await png.slice(offset, offset + 8).arrayBuffer());
     const next = offset + header.getUint32(0) + 12;
     const type = header.getUint32(4);
-    if (type === physical || type === imageData) {
-      const end = type === physical ? next : offset;
-      return new Blob([png.slice(0, offset), bytes, png.slice(end)], { type: 'image/png' });
+    if (type === 0x49444154) {
+      if (ppi) {
+        const data = new DataView(new ArrayBuffer(9));
+        const ppm = Math.round(ppi / 0.0254);
+        data.setUint32(0, ppm);
+        data.setUint32(4, ppm);
+        data.setUint8(8, 1);
+        parts.push(pngChunk(PHYS, new Uint8Array(data.buffer)));
+      }
+      return new Blob([...parts, png.slice(offset)], { type: 'image/png' });
     }
+    if (!colorChunks.has(type) && (type !== PHYS || !ppi)) parts.push(png.slice(offset, next));
+    if (type === 0x49484452) parts.push(srgbChunk);
     offset = next;
   }
-  throw new Error('Could not set the print resolution.');
+  throw new Error('Could not tag the exported PNG.');
+}
+
+export async function temporaryExport(extension) {
+  const directory = await navigator.storage.getDirectory();
+  const temporaryName = `particles-${crypto.randomUUID()}.${extension}`;
+  const handle = await directory.getFileHandle(temporaryName, { create: true });
+  return { handle, directory, temporaryName };
 }
 
 export async function chooseDestination(filename = ARCHIVE_NAME) {
@@ -82,20 +103,31 @@ export async function chooseDestination(filename = ARCHIVE_NAME) {
       if (error.name !== 'SecurityError' && error.name !== 'NotSupportedError') throw error;
     }
   }
-  const directory = await navigator.storage.getDirectory();
-  const temporaryName = `particles-${crypto.randomUUID()}.zip`;
-  const handle = await directory.getFileHandle(temporaryName, { create: true });
-  return { handle, directory, temporaryName };
+  return temporaryExport('zip');
 }
 
 export async function discardDestination(destination) {
   if (destination?.directory) await destination.directory.removeEntry(destination.temporaryName);
 }
 
-export async function renderArchive(view, snapshot, destination, signal, onProgress) {
+export async function renderFrames(view, snapshot, signal, receive, onProgress) {
   const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices, snapshot.visibleEmitterIds);
   const { frameCount, frameRate } = snapshot;
   const sampleCount = exportSamples(snapshot);
+  for (let frame = 1; frame <= frameCount; frame++) {
+    signal.throwIfAborted();
+    view.draw(simulation, simulationFrameAtRate(frame, frameRate), snapshot.camera, snapshot.effects, WIDTH, HEIGHT, {
+      exporting: true, sampleCount, frameRate, winter: snapshot.winter, black: snapshot.black,
+    });
+    const image = await view.readImage();
+    signal.throwIfAborted();
+    await receive(image, frame);
+    onProgress(frame);
+  }
+  signal.throwIfAborted();
+}
+
+export async function renderArchive(view, snapshot, destination, signal, onProgress) {
   const png = new OffscreenCanvas(WIDTH, HEIGHT);
   const context = png.getContext('2d');
   const writer = (await destination.handle.createWritable()).getWriter();
@@ -107,22 +139,14 @@ export async function renderArchive(view, snapshot, destination, signal, onProgr
   const zip = new ZipWriter(stream);
 
   try {
-    for (let frame = 1; frame <= frameCount; frame++) {
-      signal.throwIfAborted();
-      view.draw(simulation, simulationFrameAtRate(frame, frameRate), snapshot.camera, snapshot.effects, WIDTH, HEIGHT, {
-        exporting: true, sampleCount, winter: snapshot.winter,
-      });
-      const image = await view.readImage();
-      signal.throwIfAborted();
+    await renderFrames(view, snapshot, signal, async (image, frame) => {
       context.putImageData(image, 0, 0);
-      const blob = await png.convertToBlob({ type: 'image/png' });
+      const blob = await pngWithMetadata(await png.convertToBlob({ type: 'image/png' }));
       signal.throwIfAborted();
       await zip.add(`frame_${String(frame).padStart(4, '0')}.png`, new BlobReader(blob), {
         level: 0, useWebWorkers: false, signal,
       });
-      onProgress(frame);
-    }
-    signal.throwIfAborted();
+    }, onProgress);
     await zip.close();
     return destination.directory ? await destination.handle.getFile() : null;
   } catch (error) {

@@ -1,6 +1,6 @@
 # 2027 Particles
 
-A local 3D editor for drawing emitters, animating golden debris, and rendering PNG sequences.
+A local 3D editor for drawing emitters, animating golden debris, and exporting PNG, SVG, and MOV files.
 
 ```sh
 npm ci
@@ -17,51 +17,55 @@ In Outline or Area mode, choose Circle or Square and drag outward from the cente
 
 Choose Curve in Line, Outline, or Area mode. Click to place points on the drawing plane. Use Finish curve or Enter to commit it. Backspace removes the last point while drawing, and Escape cancels the curve.
 
-Save project downloads a JSON file with the emitters, camera, forces, trail and blur settings, drawing plane, timeline and export preferences. Load project restores that file in the editor. Project slots hold the same full scene in 20 named slots in your browser. The editor reopens the last slot you loaded when the page starts. Use Rename to change a slot's name while keeping its saved scene.
+Save project downloads a JSON file with the emitters, camera, forces, trail and blur settings, drawing plane, timeline and export preferences. Load project restores that file in the editor. Project slots hold the same full scene in 20 named slots in your browser. The editor reopens the last slot you loaded when the page starts. Use Rename to change a slot's name while keeping its saved scene. Copy share link opens the complete project in any browser that can reach the editor. Link creation is limited to 8,000 characters. Use the JSON file for larger projects.
 
-Select an emitter and use Solo to isolate it or Mute to hide it. Solo temporarily overrides mute. The preview and all exports show the same emitters. When exporting an isolated emitter, the filename includes its emitter number so you can keep each layer separate.
+Select an emitter and use Solo to isolate it or Mute to hide it. Duplicate emitter copies its geometry, transform, and settings into a new editable emitter. Solo temporarily overrides mute. The preview and all exports show the same emitters. When exporting an isolated emitter, the filename includes its emitter number so you can keep each layer separate.
 
 Right-click a slider to reset it to its default value.
 
-Use Fullscreen for a clean animation preview. Drag to orbit or scroll to zoom. Press Space to play or pause and Escape to return to the editor.
+Use Fullscreen or press F for a clean animation preview. Drag to orbit or scroll to zoom. Press Space to play or pause and Escape to return to the editor.
 
 Under Preview, choose Auto to adapt resolution during playback or Full resolution to use native display pixels up to 3840 × 2160. Frame rate controls playback, the timeline frame count, and PNG export. The default ten seconds is 250 frames at 25 fps or 500 frames at 50 fps. Click the end-frame number beside the playhead readout to set the timeline length in frames at the current rate.
 
-Each emitter has its own launch Speed variation and Launch spread. Set spread to 0% for a tight jet, 100% for the default spread, or up to 200% for a wider spray.
+Each emitter has its own launch Speed variation up to 200% and Launch spread. Birth scatter varies the birth position in a sphere around the emitter. Welding sparks adds tiny sparks at the same birth points with one-third of the standard particle lifetime. Set spread to 0% for a tight jet, 100% for the default spread, or up to 200% for a wider spray.
 
 Drag the points on the Lifetime brightness curve or enter brightness percentages at the five ages. Brightness variation makes individual particles and sparks dimmer or brighter across the whole curve. Particles become more transparent near the end of their lives.
 
 Sparkle amount controls how many particles and burst sparks can briefly flash with a star-shaped glint. Glints vary in size from particle to particle. The default is 0%, including for older projects that lack a saved sparkle amount.
 
-Every emitter uses a mix of ♥ hearts, ★ stars, ❄ snowflakes, ● solid circles, ✚ plus signs, ✦ sparkles, ✿ flowers, ⚡ lightning bolts, and ○ rings. Solid circles appear twice as often as each other shape.
+Every emitter uses a mix of ♥ hearts, ★ stars, ❄ snowflakes, ● solid circles, ✦ sparkles, ✿ flowers, ⚡ lightning bolts, ◆ diamonds, ▲ triangles, and ⏾ crescents. Solid circles appear twice as often as each other shape.
 
 Rotation speed sets the tumble rate in degrees per second. Rotation variation spreads that rate above and below the selected speed. Set speed to 0°/s to hold each particle's starting orientation.
 
 Lifetime variation gives particles a spread around the selected Lifetime. At 0%, particles have the same starting lifetime. The 28% default preserves the original spread.
 
-Split chance gives each particle a chance to burst once partway through its life. Burst size variation changes how many sparks it produces, from six sparks at 0% variation to a random count between two and eight at 100%. Each burst scatters a mix of shapes and colors in 3D.
+Split chance gives each particle a chance to burst once partway through its life. Burst size variation changes how many sparks it produces, from six sparks at 0% variation to a random count between six and nine at 100%. Burst sparks use the emitter palette and hue variation.
 
 Chip size can be set from 0.001 to 0.3. Size variation controls the spread around that size. Set it to 0% for equal-sized chips, 100% for the default mix, or up to 150% for a wider mix.
 
-Hue variation gives each particle from the selected emitter a consistent random color shift. At 0° the palette stays gold. Wider ranges add more colors in the preview, PNG frames, and SVG.
+Hue variation gives each particle from the selected emitter a consistent random color shift. Choose Original, Ferrari Red, Fir Green, or Gold per emitter. A 0° hue range keeps particles, bursts, and trails within that palette.
 
 Lines and outlines emit from the moving tip as they draw in. Set Draw speed to 25%/s for a four-second reveal, or to 0%/s for continuous emission along the whole stroke. Use Draw direction to run a line forward or reverse, or trace an outline clockwise or counterclockwise as seen from the front of the emitter.
 
 Use Smoothing on a line or outline to round its corners. New emitters start with the most recently drawn emitter's settings. An old emitter preset opens in a starter scene, where it can be saved as a full project.
 
-Export SVG frame saves the current camera and timeline frame as editable paths and gradients with a transparent background. The SVG includes the chips, glints, and motion trails. Use PNG export for the winter photo, depth of field, and shutter blur.
+Export SVG frame saves the current camera and timeline frame as editable paths and gradients with a transparent background. The SVG includes the chips, glints, and motion trails. Use PNG or MOV export for lens blur and shutter blur. Dim depth of field works in SVG too.
 
-Print PNG renders the current frame as a transparent 3840 × 2160 PNG, with 300 ppi metadata, depth of field, and shutter blur. At 300 ppi, the full 16:9 frame prints at approximately 32.5 × 18.3 cm.
+Print PNG renders the current frame as a 3840 × 2160 PNG with a transparent or black background, with 300 ppi metadata, depth of field, and shutter blur. At 300 ppi, the full 16:9 frame prints at approximately 32.5 × 18.3 cm.
 
-When depth of field is enabled, both PNG export dialogs let you match the sample count of the last displayed preview frame or choose Export quality at 24 samples.
+When Blur depth of field is enabled, export dialogs let you match the sample count of the last displayed preview frame or choose Export quality at 24 samples.
 
 Increase Air drag under Forces to slow particles throughout their flight and keep wind and turbulence from carrying them as far.
 
-The 25–200 mm full-frame focal length control moves the camera along its viewing axis to keep the orbit target at the same apparent size. Focus distance sets the sharp plane independently of the camera position. Use Depth of field to soften the particles in front of and behind that plane.
+The 25–200 mm full-frame focal length control moves the camera along its viewing axis to keep the orbit target at the same apparent size. Focus distance sets the sharp plane independently of the camera position. Choose Blur to soften particles away from that plane or Dim to darken them while retaining sharp edges.
 
-A 90° shutter gives a 5 ms exposure. Trail length controls how far back along each particle's motion the gold trail extends, up to 1.2 seconds. Export uses the current camera and creates a ZIP with consecutively numbered 1920 × 1080 PNGs. Choose transparent frames or include the winter backdrop. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.
+Shutter angle controls exposure as a fraction of a frame. At 90° the exposure is 5 ms at 50 fps or 10 ms at 25 fps. Export animation can create a ZIP of 1920 × 1080 PNGs with a transparent, black, or winter background. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.
 
-Trail width scales ribbon thickness from 0% to 300%. Trail length variation gives individual particles shorter and longer trails around the selected length. At 100% variation, a trail can last up to twice that length.
+Trail length extends each emitter’s ribbon up to six seconds. Trail width scales ribbon thickness from 0% to 300%. Trail only hides the chips and glints. Trail length variation gives individual particles shorter and longer trails around the selected length. At 100% variation, a trail can last up to twice that length.
+
+Export animation also offers **ProRes 422 MOV** and **CineForm MOV** at 1920 × 1080 with a black background and Rec.709 SDR color. The browser encodes the movie locally and offers a download after rendering. Black PNGs use the same composition as Preview on black and carry an sRGB tag.
+
+The MOV encoder uses [FFmpeg 7.1.2](https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz) under the [LGPL](public/video/FFmpeg-LGPL-2.1.txt). Rebuild the browser module with Emscripten 4.0.20 and `scripts/build-movie-encoder.sh`.
 
 Particle contours come from [Noto Sans Symbols 2](https://github.com/google/fonts/tree/7b6724ac7ececc713e9ba93af309f7520c9a80a3/ofl/notosanssymbols2) under the [SIL Open Font License](public/licenses/NotoSansSymbols2-OFL.txt). To regenerate them from the source TTF, run `uv run --no-project --with fonttools python scripts/extract-particle-glyphs.py NotoSansSymbols2-Regular.ttf > src/particle-glyphs.json`.
 

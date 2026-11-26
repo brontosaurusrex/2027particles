@@ -15,7 +15,7 @@
     <div class="export-actions">
       <button id="export-svg" type="button" title="Download the current frame as editable vector graphics" disabled>Export SVG frame</button>
       <button id="export-print" type="button" title="Export the current frame as a transparent 3840 × 2160 PNG at 300 ppi" disabled>Print PNG</button>
-      <button id="export" class="primary" type="button" disabled>Export PNG sequence</button>
+      <button id="export" class="primary" type="button" disabled>Export animation</button>
     </div>
   </header>
   <main>
@@ -47,6 +47,7 @@
         <div class="project-actions">
           <button id="save-project" type="button" disabled>Save project</button>
           <button id="load-project" type="button" disabled>Load project</button>
+          <button id="share-project" type="button" disabled>Copy share link</button>
           <button id="project-slots" type="button" disabled>Project slots</button>
           <input id="project-file" type="file" accept=".json,application/json" hidden>
         </div>
@@ -88,6 +89,7 @@
             <div class="emitter-visibility">
               <button id="solo-emitter" type="button" aria-pressed="false" title="Show only the selected emitter">Solo</button>
               <button id="mute-emitter" type="button" aria-pressed="false" title="Hide the selected emitter">Mute</button>
+              <button id="duplicate-emitter" type="button">Duplicate emitter</button>
             </div>
             <div id="emission"></div>
             <details class="transform">
@@ -110,6 +112,13 @@
         <summary>Camera</summary>
         <div class="section-body" id="camera">
           <label class="check"><input type="checkbox" id="winter"> Show winter backdrop</label>
+          <label class="check"><input type="checkbox" id="black-preview"> Preview on black</label>
+          <label class="select-row">DOF mode
+            <select id="dof-mode" aria-label="DOF mode">
+              <option value="blur">Blur</option>
+              <option value="dim">Dim</option>
+            </select>
+          </label>
         </div>
       </details>
       <details open>
@@ -157,14 +166,23 @@
   </dialog>
   <dialog id="export-dialog" aria-labelledby="export-title">
     <form id="export-form">
-      <h2 id="export-title">Export PNG sequence</h2>
+      <h2 id="export-title">Export animation</h2>
       <p id="export-summary">500 frames · 1920 × 1080 · 50 fps</p>
+      <label class="select-row">Format
+        <select id="export-format" aria-label="Export format">
+          <option value="png">PNG sequence</option>
+          <option value="prores">ProRes 422 MOV</option>
+          <option value="cineform">CineForm MOV</option>
+        </select>
+      </label>
       <label class="select-row">Background
         <select id="export-background">
           <option value="transparent">Transparent</option>
           <option value="winter">Winter backdrop</option>
+          <option value="black">Black</option>
         </select>
       </label>
+      <p id="movie-background" hidden>Black background · Rec.709 SDR</p>
       <label class="select-row">DOF sampling
         <select id="sequence-dof-sampling">
           <option value="preview">Match preview</option>
@@ -183,7 +201,13 @@
   <dialog id="print-dialog" aria-labelledby="print-title">
     <form id="print-form">
       <h2 id="print-title">Export print PNG</h2>
-      <p>3840 × 2160 · Transparent · 300 ppi</p>
+      <p>3840 × 2160 · 300 ppi</p>
+      <label class="select-row">Background
+        <select id="print-background" aria-label="Print background">
+          <option value="transparent">Transparent</option>
+          <option value="black">Black</option>
+        </select>
+      </label>
       <label class="select-row">DOF sampling
         <select id="print-dof-sampling">
           <option value="preview">Match preview</option>
