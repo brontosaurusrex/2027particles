@@ -3,6 +3,7 @@ import { DEFAULT_BRIGHTNESS } from './lifetime.js';
 
 export const FPS = 50;
 export const FRAME_COUNT = 500;
+export const MAX_DURATION_FRAMES = FPS * 60 * 10;
 export const STEP = 1 / FPS;
 export const CAPACITY = 2400;
 export const EMITTER_LIMIT = 32;
@@ -16,6 +17,18 @@ const DEFAULT_LIFETIME_VARIATION = 28;
 const BURST_SIZE = 6;
 const BURST_GLINT_BOOST = 0.7 / 0.46;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
+export function frameCountAtRate(durationFrames, rate) {
+  return Math.ceil(durationFrames * rate / FPS);
+}
+
+export function frameAtRate(simulationFrame, rate) {
+  return Math.floor((simulationFrame - 1) * rate / FPS) + 1;
+}
+
+export function simulationFrameAtRate(frame, rate) {
+  return 1 + (frame - 1) * FPS / rate;
+}
 
 export function randomSource(seed) {
   let state = seed >>> 0;

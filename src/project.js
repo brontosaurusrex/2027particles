@@ -1,5 +1,7 @@
 import { DEFAULT_BRIGHTNESS } from './lifetime.js';
-import { EMITTER_LIMIT, FPS, FRAME_COUNT, MAX_TRAIL_MS, MIN_CHIP_SIZE, emitterSettings, validateStroke } from './simulation.js';
+import {
+  EMITTER_LIMIT, FPS, FRAME_COUNT, MAX_DURATION_FRAMES, MAX_TRAIL_MS, MIN_CHIP_SIZE, emitterSettings, validateStroke,
+} from './simulation.js';
 
 const FORMAT = '2027-particles';
 const VERSION = 1;
@@ -121,6 +123,7 @@ export function decodeProject(contents) {
   const camera = object(project.camera, 'camera');
   const editor = object(project.editor, 'editor');
   const playback = object(project.playback, 'playback');
+  const durationFrames = integer(playback.durationFrames ?? FRAME_COUNT, 1, MAX_DURATION_FRAMES, 'timeline length');
   const sampling = project.exportDofSampling === undefined ? {} : object(project.exportDofSampling, 'DOF sampling');
   const position = vector(camera.position, 3, -1e9, 1e9, 'camera position');
   const target = vector(camera.target, 3, -1e9, 1e9, 'camera target');
@@ -148,7 +151,9 @@ export function decodeProject(contents) {
       frameRate: choice(editor.frameRate ?? FPS, [25, FPS], 'frame rate'),
     },
     playback: {
-      frame: integer(playback.frame, 1, FRAME_COUNT, 'frame'),
+      // The cursor and duration use the simulation's fixed 50 fps timebase.
+      frame: integer(playback.frame, 1, durationFrames, 'frame'),
+      durationFrames,
       loop: boolean(playback.loop, 'loop setting'),
       playing: boolean(playback.playing, 'playback state'),
     },

@@ -1,5 +1,5 @@
 import { BlobReader, ZipWriter } from '@zip.js/zip.js';
-import { FPS, FRAME_COUNT, Simulation } from './simulation.js';
+import { Simulation, simulationFrameAtRate } from './simulation.js';
 import { WIDTH, HEIGHT } from './renderer.js';
 
 export const ARCHIVE_NAME = '2027particles.zip';
@@ -7,10 +7,6 @@ export const FULL_DOF_SAMPLES = 24;
 const PRINT_WIDTH = WIDTH * 2;
 const PRINT_HEIGHT = HEIGHT * 2;
 const PRINT_PPI = 300;
-
-export function sequenceFrameCount(frameRate) {
-  return FRAME_COUNT * frameRate / FPS;
-}
 
 function exportSamples(snapshot) {
   return snapshot.effects.depth > 0 ? (snapshot.dofSamples ?? FULL_DOF_SAMPLES) : 16;
@@ -98,8 +94,7 @@ export async function discardDestination(destination) {
 
 export async function renderArchive(view, snapshot, destination, signal, onProgress) {
   const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices);
-  const frameCount = sequenceFrameCount(snapshot.frameRate);
-  const stride = FPS / snapshot.frameRate;
+  const { frameCount, frameRate } = snapshot;
   const sampleCount = exportSamples(snapshot);
   const png = new OffscreenCanvas(WIDTH, HEIGHT);
   const context = png.getContext('2d');
@@ -114,7 +109,7 @@ export async function renderArchive(view, snapshot, destination, signal, onProgr
   try {
     for (let frame = 1; frame <= frameCount; frame++) {
       signal.throwIfAborted();
-      view.draw(simulation, 1 + (frame - 1) * stride, snapshot.camera, snapshot.effects, WIDTH, HEIGHT, {
+      view.draw(simulation, simulationFrameAtRate(frame, frameRate), snapshot.camera, snapshot.effects, WIDTH, HEIGHT, {
         exporting: true, sampleCount, winter: snapshot.winter,
       });
       const image = await view.readImage();

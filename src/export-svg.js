@@ -151,7 +151,7 @@ function vectorTrails(trails, camera) {
   return { gradients: gradients.join('\n'), paths: paths.join('\n') };
 }
 
-export function renderVectorFrame(view, simulation, frame, camera, effects) {
+export function renderVectorFrame(view, simulation, frame, camera, effects, frameNumber = frame) {
   camera.updateMatrixWorld(true);
   simulation.seek(frame);
   view.updateInstances(simulation, frame * STEP, camera, effects);
@@ -159,7 +159,7 @@ export function renderVectorFrame(view, simulation, frame, camera, effects) {
   const chips = vectorParticles(view.chips, camera);
   const glints = vectorParticles([view.sparks], camera, true);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
-<title>2027 Particles, frame ${frame}</title>
+<title>2027 Particles, frame ${frameNumber}</title>
 <defs>
 <clipPath id="frame"><rect width="${WIDTH}" height="${HEIGHT}"/></clipPath>
 ${trails.gradients}

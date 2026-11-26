@@ -72,7 +72,11 @@
           <input id="timeline" type="range" min="1" max="500" value="1" aria-label="Timeline frame">
           <div class="ticks"><span>0s</span><span>2s</span><span>4s</span><span>6s</span><span>8s</span><span>10s</span></div>
         </div>
-        <div class="time"><output id="frame" for="timeline">001</output> / 500 <span id="timeline-rate">50 fps</span></div>
+        <div class="time">
+          <output id="frame" for="timeline">001</output> /
+          <button id="timeline-length" type="button" aria-label="Set timeline length" title="Set timeline length in frames">500</button>
+          <span id="timeline-rate">50 fps</span>
+        </div>
       </div>
     </section>
     <aside class="inspector" aria-label="Scene controls">
@@ -134,6 +138,18 @@
       <button type="button" id="load-slot">Load</button>
       <button type="button" id="save-slot" class="primary">Save</button>
     </div>
+  </dialog>
+  <dialog id="duration-dialog" aria-labelledby="duration-title">
+    <form id="duration-form">
+      <h2 id="duration-title">Timeline length</h2>
+      <label class="number-row"><span id="duration-label">Frames at 50 fps</span>
+        <input id="duration-frames" type="number" min="1" step="1" required autofocus>
+      </label>
+      <div class="dialog-actions">
+        <button id="close-duration" type="button">Cancel</button>
+        <button type="submit" class="primary">Apply</button>
+      </div>
+    </form>
   </dialog>
   <dialog id="export-dialog" aria-labelledby="export-title">
     <form id="export-form">

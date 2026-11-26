@@ -3,10 +3,11 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createRenderer, WIDTH, HEIGHT } from './renderer.js';
 import {
-  EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_TRAIL_MS, MIN_CHIP_SIZE, STEP, Simulation, createEmitter, emitterRotation, polygonFaces,
-  curvePoints, emitterSettings, outlineDirection, positionOnStroke, primitivePoints, strokeDuration, strokePath, validateStroke,
+  EMITTER_LIMIT, FRAME_COUNT, FPS, MAX_DURATION_FRAMES, MAX_TRAIL_MS, MIN_CHIP_SIZE, STEP, Simulation,
+  createEmitter, curvePoints, emitterRotation, emitterSettings, frameAtRate, frameCountAtRate, outlineDirection,
+  polygonFaces, positionOnStroke, primitivePoints, simulationFrameAtRate, strokeDuration, strokePath, validateStroke,
 } from './simulation.js';
-import { FULL_DOF_SAMPLES, chooseDestination, discardDestination, renderArchive, renderPrintFrame, sequenceFrameCount } from './export.js';
+import { FULL_DOF_SAMPLES, chooseDestination, discardDestination, renderArchive, renderPrintFrame } from './export.js';
 import { renderVectorFrame } from './export-svg.js';
 import { mountBrightnessEditor } from './brightness-editor.js';
 import { mountProjectSlots } from './project-slots.js';
@@ -50,6 +51,9 @@ async function start() {
   let playStart = performance.now();
   let playFrame = 1;
   let frame = 1;
+  let activeRate = FPS;
+  let durationFrames = FRAME_COUNT;
+  let frameCount = FRAME_COUNT;
   let dirty = true;
   let ready = false;
   let winter = false;
@@ -205,10 +209,10 @@ async function start() {
     dirty = true;
   }
 
-  function updateGuideProgress() {
+  function updateGuideProgress(simulationFrame) {
     for (const outline of animatedOutlines) {
       const { geometry, path, duration, tip } = outline;
-      const { x, y, index } = positionOnStroke(path, frame * STEP / duration);
+      const { x, y, index } = positionOnStroke(path, simulationFrame * STEP / duration);
       const positions = geometry.attributes.position;
       positions.setXYZ(tip, ...path.vertices[tip], 0);
       positions.setXYZ(index, x, y, 0);
@@ -570,7 +574,7 @@ async function start() {
   updateGuides();
 
   function seek(value) {
-    frame = THREE.MathUtils.clamp(value, 1, FRAME_COUNT);
+    frame = THREE.MathUtils.clamp(value, 1, frameCount);
     $('frame').value = String(frame).padStart(3, '0');
     $('timeline').value = frame;
     dirty = true;
@@ -582,7 +586,7 @@ async function start() {
   }
 
   function play(restartAtEnd = true) {
-    if (restartAtEnd && frame === FRAME_COUNT) seek(1);
+    if (restartAtEnd && frame === frameCount) seek(1);
     playStart = performance.now();
     playFrame = frame;
     playing = true;
@@ -593,11 +597,34 @@ async function start() {
   $('play').addEventListener('click', togglePlayback);
   const loop = $('loop');
   const timeline = $('timeline');
+  const durationDialog = $('duration-dialog');
+  const durationInput = $('duration-frames');
+  const timelineLength = $('timeline-length');
+  const ticks = document.querySelectorAll('.ticks span');
   timeline.addEventListener('input', event => { pause(); seek(Number(event.target.value)); });
   resetSliderOnRightClick(timeline, timeline.min);
   $('previous').addEventListener('click', () => { pause(); seek(frame - 1); });
   $('next').addEventListener('click', () => { pause(); seek(frame + 1); });
   $('restart').addEventListener('click', () => { seek(1); play(); });
+  timelineLength.addEventListener('click', () => {
+    $('duration-label').textContent = `Frames at ${activeRate} fps`;
+    durationInput.max = frameCountAtRate(MAX_DURATION_FRAMES, activeRate);
+    durationInput.value = frameCount;
+    durationDialog.showModal();
+    durationInput.select();
+  });
+  $('close-duration').addEventListener('click', () => durationDialog.close());
+  $('duration-form').addEventListener('submit', event => {
+    event.preventDefault();
+    const count = durationInput.valueAsNumber;
+    if (count !== frameCount) {
+      durationFrames = count * FPS / activeRate;
+      syncTimeline();
+      seek(frame);
+      if (playing) play(false);
+    }
+    durationDialog.close();
+  });
   document.addEventListener('keydown', event => {
     if (previewFullscreen && event.key === 'Escape' && document.fullscreenElement === viewport) {
       event.preventDefault();
@@ -618,7 +645,7 @@ async function start() {
         discardCurve();
       }
     }
-    if (event.code !== 'Space' || exportDialog.open || printDialog.open || $('slots-dialog').open ||
+    if (event.code !== 'Space' || durationDialog.open || exportDialog.open || printDialog.open || $('slots-dialog').open ||
         (!previewFullscreen && event.target !== document.body)) return;
     event.preventDefault();
     if (!event.repeat) togglePlayback();
@@ -640,14 +667,23 @@ async function start() {
     dirty = true;
   }
   previewQuality.addEventListener('change', resetQuality);
-  function syncFrameRate() {
-    const rate = Number(frameRate.value);
-    $('timeline-rate').textContent = `${rate} fps`;
-    $('export-summary').textContent = `${sequenceFrameCount(rate)} frames · ${WIDTH} × ${HEIGHT} · ${rate} fps`;
+  function syncTimeline() {
+    frameCount = frameCountAtRate(durationFrames, activeRate);
+    timeline.max = frameCount;
+    timelineLength.textContent = frameCount;
+    $('timeline-rate').textContent = `${activeRate} fps`;
+    $('export-summary').textContent = `${frameCount} frames · ${WIDTH} × ${HEIGHT} · ${activeRate} fps`;
+    const duration = frameCount / activeRate;
+    ticks.forEach((tick, index) => {
+      tick.textContent = `${Number((duration * index / (ticks.length - 1)).toFixed(3))}s`;
+    });
     resetQuality();
   }
   frameRate.addEventListener('change', () => {
-    syncFrameRate();
+    const simulationFrame = simulationFrameAtRate(frame, activeRate);
+    activeRate = Number(frameRate.value);
+    syncTimeline();
+    seek(frameAtRate(simulationFrame, activeRate));
     if (playing) play(false);
   });
   const sizeWatcher = new ResizeObserver(() => { dirty = true; });
@@ -655,18 +691,18 @@ async function start() {
 
   renderer.setAnimationLoop(now => {
     if (!ready || exporting) return;
-    const rate = Number(frameRate.value);
+    const rate = activeRate;
     if (playing) {
       const previewSteps = Math.floor(Math.max(0, now - playStart) * rate / 1000);
-      let next = playFrame + previewSteps * (FPS / rate);
-      if (next > FRAME_COUNT && loop.checked) {
-        const completedFrames = Math.floor((next - 1) / FRAME_COUNT) * FRAME_COUNT;
-        playStart += (completedFrames - playFrame + 1) * 1000 / FPS;
+      let next = playFrame + previewSteps;
+      if (next > frameCount && loop.checked) {
+        const completedFrames = Math.floor((next - 1) / frameCount) * frameCount;
+        playStart += (completedFrames - playFrame + 1) * 1000 / rate;
         playFrame = 1;
         next -= completedFrames;
       }
       if (next !== frame) seek(next);
-      if (next > FRAME_COUNT) pause();
+      if (next > frameCount) pause();
     }
     if (!dirty) return;
     const full = previewQuality.value === 'full';
@@ -679,8 +715,9 @@ async function start() {
     const height = Math.round(width * HEIGHT / WIDTH);
     dirty = false;
     const showGuides = mode !== 'orbit' && !previewFullscreen;
-    if (showGuides) updateGuideProgress();
-    view.draw(simulation, frame, camera, effects, width, height, {
+    const simulationFrame = simulationFrameAtRate(frame, rate);
+    if (showGuides) updateGuideProgress(simulationFrame);
+    view.draw(simulation, simulationFrame, camera, effects, width, height, {
       exporting: false, sampleCount: previewSamples, winter, overlay: showGuides ? guides : null,
     });
     lastPreviewSamples = previewSamples;
@@ -746,9 +783,9 @@ async function start() {
       editor: {
         mode, plane: drawingPlane.value, planeOffset: Number(planeOffset.value),
         drawingShape: drawingShape.value,
-        previewQuality: previewQuality.value, frameRate: Number(frameRate.value),
+        previewQuality: previewQuality.value, frameRate: activeRate,
       },
-      playback: { frame, playing, loop: loop.checked },
+      playback: { frame: simulationFrameAtRate(frame, activeRate), durationFrames, playing, loop: loop.checked },
       exportBackground: exportBackground.value,
       exportDofSampling: { print: printSampling.value, sequence: sequenceSampling.value },
     };
@@ -810,8 +847,10 @@ async function start() {
     planeOffset.value = project.editor.planeOffset;
     drawingShape.value = project.editor.drawingShape;
     previewQuality.value = project.editor.previewQuality;
-    frameRate.value = String(project.editor.frameRate);
-    syncFrameRate();
+    activeRate = project.editor.frameRate;
+    frameRate.value = String(activeRate);
+    durationFrames = project.playback.durationFrames;
+    syncTimeline();
     setMode(project.editor.mode);
     updatePlane();
     updateInspector();
@@ -819,7 +858,7 @@ async function start() {
     invalidateSimulation();
 
     loop.checked = project.playback.loop;
-    seek(project.playback.frame);
+    seek(frameAtRate(project.playback.frame, activeRate));
     if (project.playback.playing) play(false);
     else pause();
   }
@@ -827,7 +866,7 @@ async function start() {
   $('export-svg').addEventListener('click', () => {
     if (exporting) return;
     try {
-      const svg = renderVectorFrame(view, simulation, frame, camera, effects);
+      const svg = renderVectorFrame(view, simulation, simulationFrameAtRate(frame, activeRate), camera, effects, frame);
       downloadFile(svg, 'image/svg+xml', `frame_${String(frame).padStart(4, '0')}.svg`);
     } catch (error) {
       $('hint').textContent = 'Could not export this frame as SVG.';
@@ -850,8 +889,9 @@ async function start() {
     printDialog.close();
     exporting = printExport = new AbortController();
     const { signal } = printExport;
+    const frameNumber = frame;
     const snapshot = {
-      frame,
+      frame: simulationFrameAtRate(frameNumber, activeRate),
       camera: camera.clone(),
       effects: { ...effects },
       dofSamples: chosenDofSamples(printSampling),
@@ -865,7 +905,7 @@ async function start() {
         printButton.textContent = `Cancel print (${completed}/${total})`;
       });
       signal.throwIfAborted();
-      downloadFile(png, 'image/png', `frame_${String(snapshot.frame).padStart(4, '0')}_print.png`);
+      downloadFile(png, 'image/png', `frame_${String(frameNumber).padStart(4, '0')}_print.png`);
     } catch (error) {
       if (error.name !== 'AbortError') {
         $('hint').textContent = 'Could not export the print PNG.';
@@ -901,15 +941,15 @@ async function start() {
     if (exporting) return;
     exporting = new AbortController();
     const signal = exporting.signal;
-    const rate = Number(frameRate.value);
-    const frameCount = sequenceFrameCount(rate);
+    const rate = activeRate;
+    const count = frameCount;
     $('start-export').disabled = true;
     $('close-export').textContent = 'Cancel';
     $('export-background').disabled = true;
     sequenceSampling.disabled = true;
     done.hidden = true;
     progress.value = 0;
-    progress.max = frameCount;
+    progress.max = count;
     progress.hidden = true;
     exportStatus.hidden = true;
     let destination;
@@ -924,10 +964,11 @@ async function start() {
       signal.throwIfAborted();
       progress.hidden = false;
       exportStatus.hidden = false;
-      exportStatus.textContent = `Rendering frame 1 of ${frameCount}…`;
+      exportStatus.textContent = `Rendering frame 1 of ${count}…`;
       const snapshot = {
         camera: camera.clone(),
         frameRate: rate,
+        frameCount: count,
         effects: { ...effects },
         dofSamples: chosenDofSamples(sequenceSampling),
         forces: structuredClone(forces),
@@ -936,7 +977,7 @@ async function start() {
       };
       const file = await renderArchive(view, snapshot, destination, signal, rendered => {
         progress.value = rendered;
-        exportStatus.textContent = `Rendered ${rendered} of ${frameCount} frames`;
+        exportStatus.textContent = `Rendered ${rendered} of ${count} frames`;
       });
       if (file) {
         downloadDestination = destination;

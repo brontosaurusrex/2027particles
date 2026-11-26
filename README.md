@@ -23,7 +23,7 @@ Right-click a slider to reset it to its default value.
 
 Use Fullscreen for a clean animation preview. Drag to orbit or scroll to zoom. Press Space to play or pause and Escape to return to the editor.
 
-Under Preview, choose Auto to adapt resolution during playback or Full resolution to use native display pixels up to 3840 × 2160. Frame rate controls playback and PNG export. Both rates play the same ten-second timeline. Export produces 250 frames at 25 fps or 500 frames at 50 fps.
+Under Preview, choose Auto to adapt resolution during playback or Full resolution to use native display pixels up to 3840 × 2160. Frame rate controls playback, the timeline frame count, and PNG export. The default ten seconds is 250 frames at 25 fps or 500 frames at 50 fps. Click the end-frame number beside the playhead readout to set the timeline length in frames at the current rate.
 
 Each emitter has its own launch Speed variation and Launch spread. Set spread to 0% for a tight jet, 100% for the default spread, or up to 200% for a wider spray.
 

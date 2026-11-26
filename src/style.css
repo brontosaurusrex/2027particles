@@ -96,6 +96,7 @@ body:has(.viewport:fullscreen) :is(.masthead, .toolbar, .timeline, .inspector) {
 .ticks { font-size: .8rem; display: flex; justify-content: space-between; padding: 0 5px; }
 .time { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
 .time span { display: block; font-size: .82rem; }
+#timeline-length { color: var(--gold); border: 0; padding: 0 .15rem; background: none; text-decoration: underline dotted; }
 .inspector { overflow: auto; background: var(--panel); border-left: 1px solid var(--line); scrollbar-width: thin; }
 .inspector > details { border-bottom: 1px solid var(--line); }
 summary { padding: 13px 15px; font-weight: 650; }
