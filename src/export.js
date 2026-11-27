@@ -9,11 +9,11 @@ const PRINT_HEIGHT = HEIGHT * 2;
 const PRINT_PPI = 300;
 
 function exportSamples(snapshot) {
-  return snapshot.effects.depth > 0 ? (snapshot.dofSamples ?? FULL_DOF_SAMPLES) : 16;
+  return (snapshot.effects.depth > 0 || snapshot.effects.noise?.depth?.amount) ? (snapshot.dofSamples ?? FULL_DOF_SAMPLES) : 16;
 }
 
 export async function renderPrintFrame(view, snapshot, signal, onProgress) {
-  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices, snapshot.visibleEmitterIds);
+  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices, snapshot.visibleEmitterIds, snapshot.noiseSources);
   const camera = snapshot.camera.clone();
   const canvas = new OffscreenCanvas(PRINT_WIDTH, PRINT_HEIGHT);
   const context = canvas.getContext('2d');
@@ -25,7 +25,7 @@ export async function renderPrintFrame(view, snapshot, signal, onProgress) {
       signal.throwIfAborted();
       camera.setViewOffset(PRINT_WIDTH, PRINT_HEIGHT, x, y, WIDTH, HEIGHT);
       view.draw(simulation, snapshot.frame, camera, snapshot.effects, WIDTH, HEIGHT, {
-        exporting: true, sampleCount, black: snapshot.black, frameRate: snapshot.frameRate,
+        exporting: true, sampleCount, black: snapshot.black, frameRate: snapshot.frameRate, target: snapshot.target,
       });
       const tile = await view.readImage();
       signal.throwIfAborted();
@@ -111,13 +111,13 @@ export async function discardDestination(destination) {
 }
 
 export async function renderFrames(view, snapshot, signal, receive, onProgress) {
-  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices, snapshot.visibleEmitterIds);
+  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices, snapshot.visibleEmitterIds, snapshot.noiseSources);
   const { frameCount, frameRate } = snapshot;
   const sampleCount = exportSamples(snapshot);
   for (let frame = 1; frame <= frameCount; frame++) {
     signal.throwIfAborted();
     view.draw(simulation, simulationFrameAtRate(frame, frameRate), snapshot.camera, snapshot.effects, WIDTH, HEIGHT, {
-      exporting: true, sampleCount, frameRate, winter: snapshot.winter, black: snapshot.black,
+      exporting: true, sampleCount, frameRate, target: snapshot.target, winter: snapshot.winter, black: snapshot.black,
     });
     const image = await view.readImage();
     signal.throwIfAborted();

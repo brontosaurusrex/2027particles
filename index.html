@@ -116,6 +116,14 @@
           <label class="check"><input type="checkbox" id="black-preview"> Preview on black</label>
         </div>
       </details>
+      <details>
+        <summary>Material</summary>
+        <div class="section-body" id="material-settings"></div>
+      </details>
+      <details>
+        <summary>Noise</summary>
+        <div class="section-body" id="noise-sources"></div>
+      </details>
       <details open>
         <summary>Preview</summary>
         <div class="section-body">
@@ -142,6 +150,24 @@
       </details>
     </aside>
   </main>
+  <dialog id="noise-dialog" aria-labelledby="noise-title">
+    <form id="noise-form">
+      <h2 id="noise-title">Parameter noise</h2>
+      <label class="select-row">Source
+        <select id="noise-channel" aria-label="Noise source">
+          <option value="">Off</option>
+          <option value="0">Noise 1</option>
+          <option value="1">Noise 2</option>
+          <option value="2">Noise 3</option>
+        </select>
+      </label>
+      <div id="noise-depth"></div>
+      <div class="dialog-actions">
+        <button id="cancel-noise" type="button">Cancel</button>
+        <button type="submit" class="primary">Apply</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="slots-dialog" aria-labelledby="slots-title">
     <h2 id="slots-title">Project slots</h2>
     <label class="select-row">Slot <select id="project-slot" aria-label="Slot"></select></label>
@@ -183,6 +209,9 @@
           <option value="winter">Winter backdrop</option>
           <option value="black">Black</option>
         </select>
+      </label>
+      <label id="movie-name-row" class="number-row" hidden>File name
+        <input id="movie-name" type="text" aria-label="Movie file name" maxlength="100" placeholder="2027particles">
       </label>
       <p id="movie-background" hidden>Black background · Rec.709 SDR</p>
       <label class="select-row">DOF sampling

@@ -47,7 +47,7 @@ Split chance gives each particle a chance to burst once partway through its life
 
 Chip size can be set from 0.001 to 0.3. Size variation controls the spread around that size. Set it to 0% for equal-sized chips, 100% for the default mix, or up to 150% for a wider mix.
 
-Choose Original or the combined Ferrari Red / Fir Green / Gold palette per emitter. Each particle and burst spark picks a base color from its palette. Hue variation shifts that color, and the particle keeps the same color in its glint and trail.
+Choose Original, Ferrari Red / Fir Green / Gold, or Silver / Ferrari Red / Fir Green per emitter. Each particle and burst spark picks a base color from its palette. Hue variation shifts that color, and the particle keeps the same color in its glint and trail.
 
 Lines and outlines emit from the moving tip as they draw in. Set Draw speed to 25%/s for a four-second reveal, or to 0%/s for continuous emission along the whole stroke. Use Draw direction to run a line forward or reverse, or trace an outline clockwise or counterclockwise as seen from the front of the emitter.
 
@@ -65,9 +65,13 @@ The 25–200 mm full-frame focal length control moves the camera along its viewi
 
 Shutter angle controls exposure as a fraction of a frame. At 90° the exposure is 5 ms at 50 fps or 10 ms at 25 fps. Export animation can create a ZIP of 1920 × 1080 PNGs with a transparent, black, or winter background. A browser with a save picker can write directly to the selected file. Otherwise the editor prepares the archive in browser storage and enables a download button.
 
-Trail length extends each emitter’s curved ribbon up to six seconds. SVG exports use editable Bézier paths for trail curves. Trail width scales ribbon thickness from 0% to 300%. Trail only hides the chips and glints. Trail length variation gives individual particles shorter and longer trails around the selected length. At 100% variation, a trail can last up to twice that length.
+Trail length extends each emitter’s curved ribbon up to six seconds. SVG exports use editable Bézier paths for trail curves. Trail width scales ribbon thickness from 0% to 300%. Trail only hides the chips and glints. Trail length variation gives individual particles shorter and longer trails around the selected length. At 100% variation, a trail can last up to twice that length. Trail width variation sets how much the width varies between particles.
 
-Export animation also offers **ProRes 422 MOV** and **CineForm MOV** at 1920 × 1080 with a black background and Rec.709 SDR color. The browser encodes the movie locally and offers a download after rendering. Black PNGs use the same composition as Preview on black and carry an sRGB tag.
+The Noise panel sets the rate and detail for three smooth time-varying channels. Use Noise beside a parameter to select a channel and set its amount as a percentage of the parameter’s range. The thumb sets the base value and the readout shows the effective value. Noise follows the timeline during playback, scrubbing, and export.
+
+The Material panel sets metalness, roughness, and scratches globally for all chips. Scratch detail is visible up close in the preview and raster exports.
+
+Export animation also offers **ProRes 422 MOV** and **CineForm MOV** at 1920 × 1080 with a black background and Rec.709 SDR color. The browser encodes the movie locally and offers a download after rendering. The movie file name starts with the loaded or saved slot name and can be edited before export. Black PNGs use the same composition as Preview on black and carry an sRGB tag.
 
 The MOV encoder uses [FFmpeg 7.1.2](https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz) under the [LGPL](public/video/FFmpeg-LGPL-2.1.txt). Rebuild the browser module with Emscripten 4.0.20 and `scripts/build-movie-encoder.sh`.
 

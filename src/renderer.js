@@ -1,8 +1,13 @@
 import * as THREE from 'three/webgpu';
-import { attribute, mix, output, renderOutput, texture, uniform, uv, vec2, vec4 } from 'three/tsl';
+import {
+  attribute, materialColor, mix, mx_noise_float, output, positionLocal, renderOutput, smoothstep,
+  texture, uniform, uv, vec2, vec3, vec4,
+} from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { chipGeometries } from './chips.js';
 import { CAPACITY, FPS, STEP } from './simulation.js';
+import { EFFECT_BOUNDS, EMITTER_BOUNDS, FOCAL_LENGTH_BOUNDS, LIVE_EMITTER_KEYS, MATERIAL_DEFAULTS,
+  modulateSettings, modulationValue } from './modulation.js';
 import { MotionTrails } from './trails.js';
 import { colorWithPalette, particleTint } from './palette-color.js';
 import { brightnessAt, DEFAULT_BRIGHTNESS } from './lifetime.js';
@@ -44,6 +49,7 @@ class ParticleRenderer {
     this.backdrop = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(43, WIDTH / HEIGHT, 0.08, 120);
     this.sampleCamera = this.camera.clone();
+    this.animatedCamera = this.camera.clone();
     this.object = new THREE.Object3D();
     this.spinAxis = new THREE.Vector3();
 
@@ -57,6 +63,13 @@ class ParticleRenderer {
       metalness: 0.80, roughness: 0.22, emissive: 0xe89c32, emissiveIntensity: 0.34,
       transparent: true, depthWrite: false,
     }));
+    this.finish = Object.fromEntries(Object.entries(MATERIAL_DEFAULTS).map(([key, value]) => [key, uniform(value)]));
+    const scratchPosition = positionLocal.mul(vec3(4, 63, 7));
+    const resolved = smoothstep(0.4, 1.6, scratchPosition.y.fwidth()).oneMinus();
+    const cuts = smoothstep(0.16, 0.5, mx_noise_float(scratchPosition)).mul(resolved).mul(this.finish.scratches);
+    gold.metalnessNode = this.finish.metalness;
+    gold.roughnessNode = this.finish.roughness.add(cuts.mul(0.35)).min(1);
+    gold.colorNode = materialColor.mul(cuts.mul(0.32).oneMinus());
     this.chips = chipGeometries().map(geometry => this.createBatch(geometry, gold));
     this.shapeChoices = this.chips.flatMap((mesh, index) =>
       mesh.geometry.userData.symbol === 'circle' ? [index, index] : [index]);
@@ -163,8 +176,28 @@ class ParticleRenderer {
     return mesh;
   }
 
+  frameEffects(simulation, effects, frame) {
+    if (!Object.keys(effects.noise ?? {}).length) return effects;
+    return modulateSettings(effects, EFFECT_BOUNDS, simulation.noiseAt(frame * STEP));
+  }
+
+  frameCamera(simulation, camera, effects, frame, target) {
+    if (!target || !effects.noise?.focalLength?.amount) return camera;
+    const base = camera.getFocalLength();
+    const focal = modulationValue(base, effects.noise.focalLength, FOCAL_LENGTH_BOUNDS, simulation.noiseAt(frame * STEP));
+    const moved = this.animatedCamera.copy(camera, false);
+    moved.position.sub(target).multiplyScalar(focal / base).add(target);
+    moved.far = Math.max(camera.far, moved.position.distanceTo(target) + 60);
+    moved.setFocalLength(focal);
+    moved.updateMatrixWorld(true);
+    return moved;
+  }
+
   updateInstances(simulation, time, camera, effects, width = WIDTH, height = HEIGHT) {
     const { object, chips, sparks, trails } = this;
+    for (const [key, fallback] of Object.entries(MATERIAL_DEFAULTS)) this.finish[key].value = effects[key] ?? fallback;
+    const signals = simulation.simulationNoise ? simulation.noiseAt(time) : [];
+    const styles = new Map();
     chips.forEach(mesh => { mesh.count = 0; });
     sparks.count = 0;
     trails.begin(camera, effects, width, height);
@@ -175,9 +208,17 @@ class ParticleRenderer {
       const lifeProgress = age / lifetime;
       const opacity = THREE.MathUtils.smoothstep(1 - lifeProgress, 0, 0.75);
       const brightness = brightnessAt(particle.brightness ?? DEFAULT_BRIGHTNESS, lifeProgress) * particle.brightnessScale;
-      const angle = particle.hue ?? 0;
+      const baseStyle = particle.style ?? effects;
+      let style = baseStyle;
+      if (signals.length && baseStyle.noise) {
+        if (!styles.has(baseStyle)) styles.set(baseStyle, modulateSettings(baseStyle, EMITTER_BOUNDS, signals, LIVE_EMITTER_KEYS));
+        style = styles.get(baseStyle);
+      }
+      const angle = baseStyle.noise?.hueVariation?.amount && particle.hueFactor !== undefined
+        ? particle.hueFactor * THREE.MathUtils.degToRad(style.hueVariation)
+        : particle.hue ?? 0;
       object.position.lerpVectors(particle.previous, particle.position, fraction);
-      trails.add(particle, object.position, time, lifeScale, opacity, brightness);
+      trails.add(particle, object.position, time, lifeScale, opacity, brightness, style, angle);
       if (particle.style?.trailOnly) return;
       object.rotation.set(...rotation);
       this.spinAxis.fromArray(spin);
@@ -244,7 +285,9 @@ class ParticleRenderer {
 
   draw(simulation, frame, camera, settings, width, height, options) {
     const { renderer, samples, accumulation, sky, output } = this;
-    const { exporting, sampleCount, winter, black, overlay, showReference, frameRate = FPS } = options;
+    const { exporting, sampleCount, winter, black, overlay, updateOverlay, showReference, target, frameRate = FPS } = options;
+    camera = this.frameCamera(simulation, camera, settings, frame, target);
+    settings = this.frameEffects(simulation, settings, frame);
     const reference = !exporting && showReference ? this.reference : null;
     const count = settings.depth || settings.shutter ? sampleCount : 1;
     const focus = Math.max(camera.near * 2, settings.focus);
@@ -302,6 +345,7 @@ class ParticleRenderer {
     this.backdropMode.value = black ? 3 : winter ? 2 : Number(!exporting);
     (reference?.quad ?? this.composite).render(renderer);
     if (overlay) {
+      updateOverlay?.();
       renderer.autoClear = false;
       renderer.render(overlay, camera);
       renderer.autoClear = true;

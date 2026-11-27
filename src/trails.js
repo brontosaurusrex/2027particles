@@ -42,11 +42,12 @@ export class MotionTrails {
     this.curve.setCamera(camera, width, height);
   }
 
-  add(particle, head, time, scale, opacity, brightness) {
-    const { historyCount, size, hue: angle = 0, trailLengthJitter = 0 } = particle;
-    const { trail = 0, trailWidth = 100, trailLengthVariation = 0 } = particle.style ?? this.defaults;
+  add(particle, head, time, scale, opacity, brightness, style = particle.style ?? this.defaults, angle = particle.hue ?? 0) {
+    const { historyCount, size, trailLengthJitter = 0, trailWidthJitter = 0 } = particle;
+    const { trail = 0, trailWidth = 100, trailLengthVariation = 0, trailWidthVariation = 0 } = style;
+    const widthScale = trailWidth * (1 + trailWidthVariation / 100 * trailWidthJitter);
     const duration = trail / 1000 * (1 + trailLengthVariation / 100 * trailLengthJitter);
-    if (!historyCount || duration <= 0 || trailWidth <= 0) return;
+    if (!historyCount || duration <= 0 || widthScale <= 0) return;
 
     const { curve, sides, offset } = this;
     const segments = curve.tessellate(particle, head, time, duration);
@@ -67,7 +68,7 @@ export class MotionTrails {
     for (let i = 0; i < firstSide; i++) sides[i].copy(sides[firstSide]);
 
     const start = this.vertexCount;
-    const width = size * scale * 0.34 * trailWidth / 100;
+    const width = size * scale * 0.34 * widthScale / 100;
     const tint = particleTint(particle);
     this.ribbonStarts[this.ribbonCount++] = start;
     // Both triangles at each join share the same positions and opacity.

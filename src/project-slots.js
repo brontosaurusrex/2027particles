@@ -28,7 +28,7 @@ function transaction(database, stores, mode, operation) {
   });
 }
 
-export function mountProjectSlots(dialog, open, captureProject, restoreProject, starterProject) {
+export function mountProjectSlots(dialog, open, captureProject, restoreProject, starterProject, onSlotNameChange) {
   const select = dialog.querySelector('#project-slot');
   const name = dialog.querySelector('#project-slot-name');
   const rename = dialog.querySelector('#rename-slot');
@@ -99,6 +99,11 @@ export function mountProjectSlots(dialog, open, captureProject, restoreProject, 
     return saved === undefined ? structuredClone(legacy[index]) : decodeProject(saved);
   }
 
+  async function slotInfo(db, index) {
+    const saved = await transaction(db, 'names', 'readonly', tx => tx.objectStore('names').get(index));
+    return { index, name: saved?.name ?? `Project ${slotNumber(index)}` };
+  }
+
   async function restoreLastSlot() {
     try {
       const value = localStorage.getItem(LAST_SLOT_KEY);
@@ -107,7 +112,7 @@ export function mountProjectSlots(dialog, open, captureProject, restoreProject, 
       database ??= await connect();
       const project = await readSlot(database, index);
       if (!project) return false;
-      restoreProject(project);
+      restoreProject(project, await slotInfo(database, index));
       refresh(index);
       return true;
     } catch {
@@ -142,6 +147,7 @@ export function mountProjectSlots(dialog, open, captureProject, restoreProject, 
       });
       slotNames.set(index, slotName);
       refresh(index);
+      onSlotNameChange({ index, name: slotName }, true);
       showStatus('Project saved.');
     });
   });
@@ -154,6 +160,7 @@ export function mountProjectSlots(dialog, open, captureProject, restoreProject, 
       await transaction(db, 'names', 'readwrite', tx => tx.objectStore('names').put({ index, name: slotName }));
       slotNames.set(index, slotName);
       refresh(index);
+      onSlotNameChange({ index, name: slotName }, false);
       showStatus('Slot renamed.');
     });
   });
@@ -164,7 +171,9 @@ export function mountProjectSlots(dialog, open, captureProject, restoreProject, 
       const project = await readSlot(db, index);
       if (!dialog.open) return;
       if (!project) throw new Error('This slot is empty.');
-      restoreProject(project);
+      const slot = await slotInfo(db, index);
+      if (!dialog.open) return;
+      restoreProject(project, slot);
       try {
         localStorage.setItem(LAST_SLOT_KEY, String(index));
       } catch {

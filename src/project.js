@@ -1,29 +1,18 @@
 import { DEFAULT_BRIGHTNESS } from './lifetime.js';
 import {
-  EMITTER_LIMIT, FPS, FRAME_COUNT, MAX_DURATION_FRAMES, MAX_TRAIL_MS, MIN_CHIP_SIZE, PALETTES, TRAIL_DEFAULTS,
+  EMITTER_LIMIT, FPS, FRAME_COUNT, MAX_DURATION_FRAMES, PALETTES, TRAIL_DEFAULTS,
   emitterSettings, validateStroke,
 } from './simulation.js';
+import {
+  CHANNEL_BOUNDS, EFFECT_BOUNDS, EFFECT_NOISE_BOUNDS, EMITTER_BOUNDS, FOCAL_LENGTH_BOUNDS, FORCE_BOUNDS,
+  MATERIAL_DEFAULTS, MAX_FOCUS_DISTANCE, NOISE_DEFAULTS,
+} from './modulation.js';
+export { FOCAL_LENGTH_BOUNDS, MAX_FOCUS_DISTANCE };
 
 const FORMAT = '2027-particles';
 const VERSION = 1;
 export const MAX_FILE_BYTES = 4 * 1024 * 1024;
 export const DEFAULT_FOCAL_LENGTH = 26;
-export const FOCAL_LENGTH_BOUNDS = [25, 200];
-export const MAX_FOCUS_DISTANCE = 300;
-
-const emitterBounds = {
-  rate: [0, 400], lifetime: [0.1, 8], lifetimeVariation: [0, 100], size: [MIN_CHIP_SIZE, 0.3], sizeVariation: [0, 150],
-  speed: [0, 10], speedVariation: [0, 200], launchSpread: [0, 200], hueVariation: [0, 180], drawSpeed: [0, 100],
-  smoothing: [0, 100], rotationSpeed: [0, 360], rotationVariation: [0, 100], splitChance: [0, 100],
-  burstSizeVariation: [0, 100], brightnessVariation: [0, 100], sparkleAmount: [0, 100],
-  birthScatter: [0, 1], weldingSparks: [0, 100], trail: [0, MAX_TRAIL_MS], trailWidth: [0, 300],
-  trailLengthVariation: [0, 100],
-};
-
-const effectBounds = {
-  depth: [0, 5], shutter: [0, 360], focus: [0.2, MAX_FOCUS_DISTANCE],
-};
-
 function invalid(field) {
   throw new Error(`Invalid ${field} in the project file.`);
 }
@@ -63,6 +52,18 @@ function boundedSettings(value, bounds, label) {
     [key, number(value[key], min, max, `${label} ${key}`)]));
 }
 
+function assignments(value, bounds) {
+  const result = {};
+  for (const [key, entry] of Object.entries(object(value ?? {}, 'noise assignments'))) {
+    if (!Object.hasOwn(bounds, key)) invalid('noise target');
+    const assignment = object(entry, 'noise assignment');
+    const channel = integer(assignment.channel, 0, NOISE_DEFAULTS.length - 1, 'noise channel');
+    const amount = number(assignment.amount, 0, 100, 'noise amount');
+    if (amount) result[key] = { channel, amount };
+  }
+  return result;
+}
+
 function drawingShape(value, options, field) {
   return choice(value === 'square' ? 'rectangle' : value, options, field);
 }
@@ -89,8 +90,9 @@ function readEmitter(value, legacyTrails) {
     position: vector(emitter.position, 3, primitive === 'curve' ? -40 : -36,
       primitive === 'curve' ? 40 : 36, 'emitter position'),
     rotation: vector(emitter.rotation, 3, -360, 360, 'emitter rotation'),
-    ...boundedSettings(emitterSettings({ ...legacyTrails, ...emitter, brightness }), emitterBounds, 'emitter'),
+    ...boundedSettings(emitterSettings({ ...legacyTrails, ...emitter, brightness }), EMITTER_BOUNDS, 'emitter'),
     palette: choice(palette, Object.keys(PALETTES), 'emitter palette'),
+    noise: assignments(emitter.noise, EMITTER_BOUNDS),
     trailOnly: boolean(emitter.trailOnly ?? false, 'trail only'),
     drawDirection: choice(emitter.drawDirection ?? 'as-drawn',
       ['as-drawn', 'reverse', 'clockwise', 'counterclockwise'], 'draw direction'),
@@ -122,6 +124,9 @@ export function decodeProject(contents) {
 
   if (!Array.isArray(project.emitters) || project.emitters.length > EMITTER_LIMIT) invalid('emitters');
   const effects = object(project.effects, 'camera effects');
+  const sourceValues = project.noiseSources ?? NOISE_DEFAULTS;
+  if (!Array.isArray(sourceValues) || sourceValues.length !== NOISE_DEFAULTS.length) invalid('noise sources');
+  const noiseSources = sourceValues.map(source => boundedSettings(object(source, 'noise source'), CHANNEL_BOUNDS, 'noise source'));
   const legacyTrails = Object.fromEntries(Object.keys(TRAIL_DEFAULTS).map(key => [key, effects[key] ?? TRAIL_DEFAULTS[key]]));
   const emitters = project.emitters.map(emitter => readEmitter(emitter, legacyTrails));
   const ids = new Set(emitters.map(emitter => emitter.id));
@@ -143,13 +148,17 @@ export function decodeProject(contents) {
   if (position.every((value, axis) => value === target[axis])) invalid('camera position');
 
   return {
-    emitters, selectedEmitterId, soloEmitterId, nextEmitterId,
+    emitters, selectedEmitterId, soloEmitterId, nextEmitterId, noiseSources,
     forces: {
       ...boundedSettings(forces, { gravity: [-10, 10], turbulence: [0, 10], drag: [0, 8] }, 'force'),
       wind: vector(forces.wind, 3, -8, 8, 'wind'),
       seed: integer(forces.seed, 0, 4294967295, 'seed'),
+      noise: assignments(forces.noise, FORCE_BOUNDS),
     },
-    effects: boundedSettings(effects, effectBounds, 'camera effect'),
+    effects: {
+      ...boundedSettings({ ...MATERIAL_DEFAULTS, ...effects }, EFFECT_BOUNDS, 'camera effect'),
+      noise: assignments(effects.noise, EFFECT_NOISE_BOUNDS),
+    },
     camera: {
       position, target,
       focalLength: number(camera.focalLength, ...FOCAL_LENGTH_BOUNDS, 'focal length'),

@@ -1,5 +1,8 @@
 import { CatmullRomCurve3, Euler, MathUtils, Quaternion, ShapeUtils, Vector2, Vector3 } from 'three/webgpu';
 import { DEFAULT_BRIGHTNESS } from './lifetime.js';
+import { EMITTER_BOUNDS, FORCE_BOUNDS, MIN_CHIP_SIZE, MAX_TRAIL_MS, WIND_KEYS,
+  modulateSettings, modulationValue, noiseValues } from './modulation.js';
+export { MIN_CHIP_SIZE, MAX_TRAIL_MS };
 
 export const FPS = 50;
 export const FRAME_COUNT = 500;
@@ -7,12 +10,14 @@ export const MAX_DURATION_FRAMES = FPS * 60 * 10;
 export const STEP = 1 / FPS;
 export const CAPACITY = 2400;
 export const EMITTER_LIMIT = 32;
-export const MIN_CHIP_SIZE = 0.001;
-export const MAX_TRAIL_MS = 6000;
 export const TRAIL_HISTORY = Math.ceil(2 * MAX_TRAIL_MS / (1000 * STEP)) + 1;
-export const TRAIL_DEFAULTS = { trail: 110, trailWidth: 100, trailLengthVariation: 0 };
+export const TRAIL_DEFAULTS = { trail: 110, trailWidth: 100, trailLengthVariation: 0, trailWidthVariation: 0 };
 export const PALETTES = {
   original: { label: 'Original', tints: [[0, 0, 0]] },
+  silver: {
+    label: 'Silver / Ferrari Red / Fir Green',
+    tints: [[0.8, 0.91, 1], [1, 0.018, 0.025], [0.035, 0.52, 0.14]],
+  },
   festive: {
     label: 'Ferrari Red / Fir Green / Gold',
     tints: [[1, 0.018, 0.025], [0.035, 0.52, 0.14], [1, 0.56, 0.065]],
@@ -58,13 +63,15 @@ export function emitterSettings(source = {}) {
     splitChance = 0, burstSizeVariation = 0, sparkleAmount = 0,
     palette = 'original', birthScatter = 0, weldingSparks = 0, trailOnly = false,
     trail = TRAIL_DEFAULTS.trail, trailWidth = TRAIL_DEFAULTS.trailWidth,
-    trailLengthVariation = TRAIL_DEFAULTS.trailLengthVariation,
+    trailLengthVariation = TRAIL_DEFAULTS.trailLengthVariation, trailWidthVariation = TRAIL_DEFAULTS.trailWidthVariation,
+    noise = {},
   } = source;
   return {
     rate, lifetime, lifetimeVariation, size, sizeVariation, speed, speedVariation, launchSpread, hueVariation,
     drawSpeed, drawDirection, smoothing, rotationSpeed, rotationVariation, splitChance, burstSizeVariation,
     brightness: [...brightness], brightnessVariation, sparkleAmount,
-    palette, birthScatter, weldingSparks, trailOnly, trail, trailWidth, trailLengthVariation,
+    palette, birthScatter, weldingSparks, trailOnly, trail, trailWidth, trailLengthVariation, trailWidthVariation,
+    noise: structuredClone(noise),
   };
 }
 
@@ -213,7 +220,7 @@ export function emitterSampler(emitter) {
   const { points, kind } = emitter;
   const rotation = emitterRotation(emitter);
   const position = new Vector3(...emitter.position);
-  const path = kind === 'area' ? null : strokePath(emitter);
+  const path = kind === 'area' ? null : strokePath(emitter.noise?.drawSpeed?.amount ? { ...emitter, drawSpeed: 1 } : emitter);
   let area = 0;
   const parts = [];
   if (kind === 'area') {
@@ -228,9 +235,10 @@ export function emitterSampler(emitter) {
   const normal = new Vector3(0, 0, 1).applyQuaternion(rotation);
   return {
     normal,
-    sample(random, progress) {
-      if (path) {
-        const { x, y } = positionOnStroke(path, progress ?? random());
+    path,
+    sample(random, progress, animatedPath = path) {
+      if (animatedPath) {
+        const { x, y } = positionOnStroke(animatedPath, progress ?? random());
         return new Vector3(x, y, 0).applyQuaternion(rotation).add(position);
       }
       const choice = random() * area;
@@ -257,8 +265,10 @@ function particleHistory(position) {
 }
 
 export class Simulation {
-  constructor(settings, emitters, shapeChoices, visibleEmitterIds = null) {
+  constructor(settings, emitters, shapeChoices, visibleEmitterIds = null, sources = []) {
     this.settings = settings;
+    this.noiseSources = sources;
+    this.simulationNoise = Object.keys(settings.noise ?? {}).length || emitters.some(emitter => Object.keys(emitter.noise ?? {}).length);
     this.emitters = emitters.map(emitter => ({ ...emitter, ...emitterSampler(emitter), drawDuration: strokeDuration(emitter) }));
     this.shapeChoices = shapeChoices;
     this.uniqueShapes = [...new Set(shapeChoices)];
@@ -274,6 +284,7 @@ export class Simulation {
     this.hueRandom = randomSource(this.settings.seed ^ 0x9e3779b9);
     this.rotationRandom = randomSource(this.settings.seed ^ 0xc2b2ae35);
     this.trailRandom = randomSource(this.settings.seed ^ 0x85ebca6b);
+    this.trailWidthRandom = randomSource(this.settings.seed ^ 0x419ee343);
     this.splitRandom = randomSource(this.settings.seed ^ 0x27d4eb2f);
     this.fragmentRandom = randomSource(this.settings.seed ^ 0x165667b1);
     this.burstCountRandom = randomSource(this.settings.seed ^ 0xd3a2646c);
@@ -283,6 +294,15 @@ export class Simulation {
     this.scatterRandom = randomSource(this.settings.seed ^ 0xaa483cc1);
     this.weldingRandom = randomSource(this.settings.seed ^ 0x3859f3a7);
     this.paletteRandom = randomSource(this.settings.seed ^ 0xec4e6c89);
+    for (const emitter of this.emitters) {
+      emitter.reveal = 0;
+      emitter.emission = 0;
+      emitter.currentPath = emitter.path;
+    }
+  }
+
+  noiseAt(time) {
+    return noiseValues(this.noiseSources, this.settings.seed, time);
   }
 
   tintIndex(emitter) {
@@ -320,6 +340,7 @@ export class Simulation {
         ...particleHistory(parent.position.clone()),
         velocity,
         trailLengthJitter: 2 * random() - 1,
+        trailWidthJitter: 2 * this.trailWidthRandom() - 1,
         rotation: [TAU * random(), TAU * random(), TAU * random()],
         spin: particleSpin(random, spin * (1 + random())),
         size: parent.size * (0.4 + 0.22 * random()),
@@ -328,6 +349,7 @@ export class Simulation {
         glint: random() < glintChance,
         glintSizeScale: 0.75 + 0.5 * this.glintSizeRandom(),
         shape, shade: parent.shade,
+        hueFactor: 2 * ((colorOffset + index / burstCount) % 1) - 1,
         hue: (2 * ((colorOffset + index / burstCount) % 1) - 1) * parent.hueRange,
       });
     }
@@ -336,13 +358,28 @@ export class Simulation {
   step() {
     const start = this.frame * STEP;
     const end = ++this.frame * STEP;
-    const { gravity, wind, turbulence, drag = 0 } = this.settings;
+    const signals = this.simulationNoise ? this.noiseAt(start) : [];
+    const { gravity, wind, turbulence, drag = 0 } = modulateSettings(this.settings, FORCE_BOUNDS, signals,
+      ['gravity', 'turbulence', 'drag']);
+    const forceWind = this.settings.noise ? WIND_KEYS.map((key, axis) =>
+      modulationValue(wind[axis], this.settings.noise[key], FORCE_BOUNDS[key], signals)) : wind;
     const random = this.random;
     this.particles = this.particles.filter(particle => particle.death > start);
 
-    for (const emitter of this.emitters) {
-      const { drawDuration } = emitter;
-      if (start >= drawDuration) continue;
+    for (const base of this.emitters) {
+      const emitter = modulateSettings(base, EMITTER_BOUNDS, signals);
+      const { drawDuration } = base;
+      const animatedDraw = base.kind !== 'area' && base.noise?.drawSpeed?.amount;
+      const progress = base.reveal;
+      const drawRate = emitter.drawSpeed / 100;
+      if (animatedDraw ? progress >= 1 : start >= drawDuration) continue;
+      const activeEnd = animatedDraw
+        ? Math.min(end, drawRate > 0 ? start + (1 - progress) / drawRate : end)
+        : Math.min(end, drawDuration);
+      if (animatedDraw) base.reveal = Math.min(1, progress + STEP * drawRate);
+      if (base.path && base.noise?.smoothing?.amount && !base.primitive) {
+        base.currentPath = strokePath(animatedDraw ? { ...emitter, drawSpeed: 1 } : emitter);
+      }
       const sizeVariation = (emitter.sizeVariation ?? 100) / 100;
       const lifetimeVariation = (emitter.lifetimeVariation ?? DEFAULT_LIFETIME_VARIATION) / 100;
       const hueRange = MathUtils.degToRad(emitter.hueVariation ?? 0);
@@ -356,12 +393,19 @@ export class Simulation {
       const glintChance = (emitter.sparkleAmount ?? 0) / 100;
       const burstSizeVariation = (emitter.burstSizeVariation ?? 0) / 100;
       const maxBurstCount = BURST_SIZE + Math.round(3 * burstSizeVariation);
-      const first = Math.floor(start * emitter.rate + 1e-8) + 1;
-      const last = Math.floor(Math.min(end, drawDuration) * emitter.rate + 1e-8);
+      const animatedRate = base.noise?.rate?.amount;
+      const countAtStart = animatedRate ? base.emission : start * emitter.rate;
+      const countAtEnd = animatedRate ? countAtStart + (activeEnd - start) * emitter.rate : activeEnd * emitter.rate;
+      if (animatedRate) base.emission = countAtEnd;
+      const first = Math.floor(countAtStart + 1e-8) + 1;
+      const last = Math.floor(countAtEnd + 1e-8);
       for (let i = first; i <= last && this.particles.length < CAPACITY; i++) {
-        const birth = Math.max(start, (i - 0.5) / emitter.rate);
-        const progress = Number.isFinite(drawDuration) ? birth / drawDuration : undefined;
-        const position = emitter.sample(random, progress);
+        const birth = animatedRate
+          ? Math.max(start, start + (i - 0.5 - countAtStart) / emitter.rate)
+          : Math.max(start, (i - 0.5) / emitter.rate);
+        const reveal = animatedDraw ? progress + (birth - start) * drawRate
+          : Number.isFinite(drawDuration) ? birth / drawDuration : undefined;
+        const position = base.sample(random, reveal, base.currentPath);
         if (birthScatter > 0) {
           const z = 2 * this.scatterRandom() - 1;
           const angle = TAU * this.scatterRandom();
@@ -385,7 +429,7 @@ export class Simulation {
         const splitAge = lifetime * (0.2 + 0.7 * this.splitRandom());
         const particle = {
           emitterId: emitter.id,
-          style: emitter,
+          style: base,
           tintIndex: this.tintIndex(emitter),
           birth,
           death: birth + lifetime,
@@ -397,6 +441,7 @@ export class Simulation {
           ...particleHistory(position),
           velocity,
           trailLengthJitter: 2 * this.trailRandom() - 1,
+          trailWidthJitter: 2 * this.trailWidthRandom() - 1,
           rotation: [TAU * random(), TAU * random(), TAU * random()],
           spin: particleSpin(random, rotationSpeed * (1 + (2 * this.rotationRandom() - 1) * rotationVariation)),
           size: emitter.size * MathUtils.lerp(1, 0.38 + 0.95 * random() ** 2, sizeVariation),
@@ -408,8 +453,9 @@ export class Simulation {
           shape: this.shapeChoices[Math.floor(random() * this.shapeChoices.length)],
           shade: Math.floor(random() * 5),
           hueRange,
-          hue: (this.hueRandom() * 2 - 1) * hueRange,
+          hueFactor: this.hueRandom() * 2 - 1,
         };
+        particle.hue = particle.hueFactor * hueRange;
         this.particles.push(particle);
         if (weldingSparks > 0 && this.particles.length < CAPACITY && this.weldingRandom() * 100 < weldingSparks) {
           const sparks = this.weldingRandom;
@@ -442,9 +488,9 @@ export class Simulation {
       particle.historyCount = Math.min(particle.historyCount + 1, TRAIL_HISTORY);
       const forceTime = drag > 0 ? -Math.expm1(-drag * duration) / drag : duration;
       velocity.multiplyScalar(1 - drag * forceTime);
-      velocity.x += (wind[0] + turbulence * Math.sin(position.y * 1.4 + start * 2.5 + phase)) * forceTime;
-      velocity.y += (wind[1] - gravity + turbulence * Math.sin(position.z * 1.8 - start * 1.8 + phase * 2)) * forceTime;
-      velocity.z += (wind[2] + turbulence * Math.sin(position.x * 1.7 + start * 1.9 - phase)) * forceTime;
+      velocity.x += (forceWind[0] + turbulence * Math.sin(position.y * 1.4 + start * 2.5 + phase)) * forceTime;
+      velocity.y += (forceWind[1] - gravity + turbulence * Math.sin(position.z * 1.8 - start * 1.8 + phase * 2)) * forceTime;
+      velocity.z += (forceWind[2] + turbulence * Math.sin(position.x * 1.7 + start * 1.9 - phase)) * forceTime;
       position.addScaledVector(velocity, duration);
       if (canBurst) {
         particle.lifetime = particle.death - birth;

@@ -147,3 +147,10 @@ dialog progress { width: 100%; margin-top: 14px; }
 @media (max-width: 470px) {
   .ticks span:not(:first-child):not(:last-child) { display: none; }
 }
+
+.noise-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; align-items: center; }
+.noise-control { width: 4.25rem; font-size: .78rem; padding-inline: .25rem; }
+.noise-control[data-assigned=true] { color: var(--gold); border-color: #735a35; }
+.noise-source { border: 0; margin: 0 0 10px; padding: 0; }
+.noise-source legend { font-weight: 600; }
+#movie-name { width: 64%; }

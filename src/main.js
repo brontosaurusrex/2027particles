@@ -13,6 +13,8 @@ import {
 import { renderVectorFrame } from './export-svg.js';
 import { mountBrightnessEditor } from './brightness-editor.js';
 import { mountProjectSlots } from './project-slots.js';
+import { EFFECT_NOISE_BOUNDS, EMITTER_BOUNDS, FORCE_BOUNDS, MATERIAL_DEFAULTS, NOISE_DEFAULTS, WIND_KEYS,
+  modulationValue } from './modulation.js';
 import { createShareLink, readShareLink } from './share.js';
 import {
   DEFAULT_FOCAL_LENGTH, FOCAL_LENGTH_BOUNDS, MAX_FOCUS_DISTANCE, encodeProject, readProject,
@@ -39,8 +41,10 @@ async function start() {
   camera.filmGauge = 36;
   const orbit = new OrbitControls(camera, renderer.domElement);
 
-  const forces = { gravity: 2.2, wind: [0.35, 0, -0.20], turbulence: 0.90, drag: 1.5, seed: 2027 };
-  const effects = { depth: 1, shutter: 90, focus: 9.6 };
+  const forces = { gravity: 2.2, wind: [0.35, 0, -0.20], turbulence: 0.90, drag: 1.5, seed: 2027, noise: {} };
+  const effects = { depth: 1, shutter: 90, focus: 9.6, ...MATERIAL_DEFAULTS, noise: {} };
+  const noiseSources = structuredClone(NOISE_DEFAULTS);
+  let activeProjectSlot = null;
   const demo = createEmitter(1, 'line', [
     [-2.4, -0.36], [-1.7, -0.12], [-1.05, 0.15], [-0.45, 0.22], [0.2, 0.17],
     [0.85, -0.01], [1.6, -0.25], [2.35, -0.54],
@@ -51,7 +55,7 @@ async function start() {
   let nextId = 2;
   let selected = demo;
   let soloEmitterId = null;
-  let simulation = new Simulation(forces, emitters, view.shapeChoices, visibleEmitterIds());
+  let simulation = new Simulation(forces, emitters, view.shapeChoices, visibleEmitterIds(), noiseSources);
   let playing = true;
   let playStart = performance.now();
   let playFrame = 1;
@@ -131,7 +135,7 @@ async function start() {
   }
 
   function invalidateSimulation() {
-    simulation = new Simulation(forces, emitters, view.shapeChoices, visibleEmitterIds());
+    simulation = new Simulation(forces, emitters, view.shapeChoices, visibleEmitterIds(), noiseSources);
     dirty = true;
   }
 
@@ -152,19 +156,21 @@ async function start() {
 
   function setPointerRay(event) {
     const bounds = stage.getBoundingClientRect();
-    camera.updateMatrixWorld();
+    const activeCamera = view.frameCamera(simulation, camera, effects, simulationFrameAtRate(frame, activeRate), orbit.target);
+    activeCamera.updateMatrixWorld();
     ray.setFromCamera({
       x: (event.clientX - bounds.left) / bounds.width * 2 - 1,
       y: 1 - (event.clientY - bounds.top) / bounds.height * 2,
-    }, camera);
+    }, activeCamera);
+    return activeCamera;
   }
 
   function strokePoint(event) {
-    setPointerRay(event);
+    const activeCamera = setPointerRay(event);
     if (Math.abs(ray.ray.direction.dot(normal)) < 0.045) return null;
     if (!ray.ray.intersectPlane(plane, point) || point.distanceToSquared(zero) > 1200) return null;
-    const depth = -cameraPoint.copy(point).applyMatrix4(camera.matrixWorldInverse).z;
-    if (depth < camera.near || depth > camera.far) return null;
+    const depth = -cameraPoint.copy(point).applyMatrix4(activeCamera.matrixWorldInverse).z;
+    if (depth < activeCamera.near || depth > activeCamera.far) return null;
     workPlane.worldToLocal(point);
     return [point.x, point.y];
   }
@@ -188,9 +194,11 @@ async function start() {
       group.quaternion.copy(emitterRotation(emitter));
       const active = emitter === selected || emitter === stroke;
       const tint = active ? 0xf4c468 : 0x9a907a;
-      const path = strokePath(emitter === stroke ? { ...emitter, smoothing: 0, drawSpeed: 0 } : emitter);
+      const animatedByNoise = emitter !== stroke && emitter.kind !== 'area' && emitter.noise?.drawSpeed?.amount;
+      const path = strokePath(emitter === stroke ? { ...emitter, smoothing: 0, drawSpeed: 0 }
+        : animatedByNoise ? { ...emitter, drawSpeed: 1 } : emitter);
       const duration = emitter === stroke ? Infinity : strokeDuration(emitter);
-      const animated = Number.isFinite(duration);
+      const animated = Number.isFinite(duration) || animatedByNoise;
       const material = new THREE.LineBasicMaterial({
         color: tint, transparent: true, opacity: animated ? 0.3 : 0.9, depthTest: false,
       });
@@ -199,12 +207,17 @@ async function start() {
       const line = new THREE.Line(geometry, material);
       line.renderOrder = 3;
       group.add(line);
+      let revealed;
       if (animated) {
-        const revealed = new THREE.Line(geometry.clone(), material.clone());
+        revealed = new THREE.Line(geometry.clone(), material.clone());
         revealed.material.opacity = 0.95;
         revealed.renderOrder = 4;
         group.add(revealed);
-        animatedOutlines.push({ geometry: revealed.geometry, path, duration, tip: 0 });
+      }
+      const animatedSmoothing = emitter !== stroke && !emitter.primitive && emitter.kind !== 'area' && emitter.noise?.smoothing?.amount;
+      if (revealed || animatedSmoothing) {
+        animatedOutlines.push({ line, revealed, path, duration, tip: 0,
+          emitterId: emitter.id, animatedByNoise, animatedSmoothing });
       }
       if (emitter.kind === 'area' && emitter.points.length >= 3 && (emitter !== stroke || emitter.primitive)) {
         const area = new THREE.BufferGeometry().setFromPoints(vertices.slice(0, -1));
@@ -235,13 +248,27 @@ async function start() {
 
   function updateGuideProgress(simulationFrame) {
     for (const outline of animatedOutlines) {
-      const { geometry, path, duration, tip } = outline;
-      const { x, y, index } = positionOnStroke(path, simulationFrame * STEP / duration);
-      const positions = geometry.attributes.position;
+      const { line, revealed, duration, emitterId, animatedByNoise, animatedSmoothing } = outline;
+      const emitter = animatedByNoise || animatedSmoothing ? simulation.emitters.find(item => item.id === emitterId) : null;
+      if (animatedSmoothing && emitter?.currentPath && outline.path !== emitter.currentPath) {
+        outline.path = emitter.currentPath;
+        line.geometry.dispose();
+        line.geometry = new THREE.BufferGeometry().setFromPoints(outline.path.vertices.map(([x, y]) => new THREE.Vector3(x, y, 0)));
+        if (revealed) {
+          revealed.geometry.dispose();
+          revealed.geometry = line.geometry.clone();
+        }
+        outline.tip = 0;
+      }
+      if (!revealed) continue;
+      const { path, tip } = outline;
+      const progress = animatedByNoise ? emitter?.reveal ?? 0 : simulationFrame * STEP / duration;
+      const { x, y, index } = positionOnStroke(path, progress);
+      const positions = revealed.geometry.attributes.position;
       positions.setXYZ(tip, ...path.vertices[tip], 0);
       positions.setXYZ(index, x, y, 0);
       positions.needsUpdate = true;
-      geometry.setDrawRange(0, index + 1);
+      revealed.geometry.setDrawRange(0, index + 1);
       outline.tip = index;
     }
   }
@@ -512,6 +539,90 @@ async function start() {
     updateGuides();
   });
 
+  const noiseDialog = $('noise-dialog');
+  const noiseChannel = $('noise-channel');
+  const noiseAmount = range($('noise-depth'), 'Amount (% of range)', 0, 100, 1, 10, () => {}, '%');
+  const noiseControls = new Set();
+  let editingNoise;
+
+  function attachNoise(field, owner, key, bounds, onChange, format = field.format) {
+    const { row, input, output, label } = field;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'noise-control';
+    button.setAttribute('aria-label', `${label} noise`);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'noise-row';
+    row.before(wrapper);
+    wrapper.append(row, button);
+    const control = { button, input, output, owner, key, bounds, format };
+    function refresh() {
+      const assignment = owner.noise?.[key];
+      button.dataset.assigned = String(!!assignment);
+      button.textContent = assignment ? `Noise ${assignment.channel + 1}` : 'Noise';
+      if (!assignment) output.value = format(input.valueAsNumber);
+    }
+    control.refresh = refresh;
+    noiseControls.add(control);
+    refresh();
+    button.addEventListener('click', () => {
+      const assignment = owner.noise?.[key];
+      editingNoise = { owner, key, onChange, refresh };
+      $('noise-title').textContent = `${label} noise`;
+      noiseChannel.value = assignment ? String(assignment.channel) : '';
+      noiseAmount.setValue(assignment?.amount ?? 10);
+      noiseAmount.input.disabled = !noiseChannel.value;
+      noiseDialog.showModal();
+    });
+  }
+
+  noiseChannel.addEventListener('change', () => { noiseAmount.input.disabled = !noiseChannel.value; });
+  $('cancel-noise').addEventListener('click', () => noiseDialog.close());
+  $('noise-form').addEventListener('submit', event => {
+    event.preventDefault();
+    const { owner, key, onChange, refresh } = editingNoise;
+    owner.noise ??= {};
+    const amount = noiseAmount.input.valueAsNumber;
+    if (noiseChannel.value && amount) owner.noise[key] = { channel: Number(noiseChannel.value), amount };
+    else delete owner.noise[key];
+    refresh();
+    onChange();
+    noiseDialog.close();
+  });
+
+  function updateNoiseReadouts(signals) {
+    for (const control of noiseControls) {
+      if (!control.button.isConnected) {
+        noiseControls.delete(control);
+        continue;
+      }
+      const { owner, key, bounds, input, output, format } = control;
+      const assignment = owner.noise?.[key];
+      if (!assignment) continue;
+      const value = modulationValue(input.valueAsNumber, assignment, bounds, signals);
+      output.value = format(Number(value.toFixed(3)));
+    }
+  }
+
+  const sourceFields = noiseSources.flatMap((source, index) => {
+    const section = document.createElement('fieldset');
+    section.className = 'noise-source';
+    const legend = document.createElement('legend');
+    legend.textContent = `Noise ${index + 1}`;
+    section.append(legend);
+    $('noise-sources').append(section);
+    return [
+      range(section, `Noise ${index + 1} rate`, 0.05, 8, 0.05, source.rate, value => {
+        source.rate = value;
+        invalidateSimulation();
+      }, ' Hz'),
+      range(section, `Noise ${index + 1} detail`, 0, 100, 1, source.detail, value => {
+        source.detail = value;
+        invalidateSimulation();
+      }, '%'),
+    ];
+  });
+
   const brightnessEditor = mountBrightnessEditor($('brightness'), curve => {
     if (!selected) return;
     selected.brightness = curve;
@@ -571,12 +682,14 @@ async function start() {
       ['Trail length', 'trail', 0, MAX_TRAIL_MS, 10, ' ms'],
       ['Trail width', 'trailWidth', 0, 300, 1, '%'],
       ['Trail length variation', 'trailLengthVariation', 0, 100, 1, '%'],
+      ['Trail width variation', 'trailWidthVariation', 0, 100, 1, '%'],
     ]) {
-      const { input } = range(emission, label, min, max, step, selected[key], value => {
+      const field = range(emission, label, min, max, step, selected[key], value => {
         selected[key] = value;
         invalidateSimulation();
       }, suffix, emitterDefaults[key]);
-      if (title) input.title = title;
+      attachNoise(field, selected, key, EMITTER_BOUNDS[key], invalidateSimulation);
+      if (title) field.input.title = title;
     }
     const trailOnly = document.createElement('input');
     trailOnly.type = 'checkbox';
@@ -591,28 +704,34 @@ async function start() {
     emission.append(trailRow);
     if (selected.kind !== 'area') {
       if (!selected.primitive) {
-        range(emission, 'Smoothing', 0, 100, 1, selected.smoothing, value => {
+        const smoothing = range(emission, 'Smoothing', 0, 100, 1, selected.smoothing, value => {
           selected.smoothing = value;
           updateGuides();
           invalidateSimulation();
         }, '%', emitterDefaults.smoothing);
+        attachNoise(smoothing, selected, 'smoothing', EMITTER_BOUNDS.smoothing, invalidateSimulation);
       }
       const direction = document.createElement('select');
       direction.setAttribute('aria-label', 'Draw direction');
-      const { input } = range(emission, 'Draw speed', 0, 100, 0.5, selected.drawSpeed, value => {
+      const revealRate = range(emission, 'Draw speed', 0, 100, 0.5, selected.drawSpeed, value => {
         selected.drawSpeed = value;
-        direction.disabled = value === 0;
+        direction.disabled = value === 0 && !selected.noise?.drawSpeed;
         updateGuides();
         invalidateSimulation();
       }, '%/s', emitterDefaults.drawSpeed);
-      input.title = 'Percentage of the stroke revealed per second. Set to 0 for continuous emission along the whole stroke.';
+      attachNoise(revealRate, selected, 'drawSpeed', EMITTER_BOUNDS.drawSpeed, () => {
+        direction.disabled = selected.drawSpeed === 0 && !selected.noise?.drawSpeed;
+        updateGuides();
+        invalidateSimulation();
+      });
+      revealRate.input.title = 'Percentage of the stroke revealed per second. Set to 0 for continuous emission along the whole stroke.';
       const line = selected.kind === 'line';
       const options = line ? [['Forward', 'as-drawn'], ['Reverse', 'reverse']] :
         [['Clockwise', 'clockwise'], ['Counterclockwise', 'counterclockwise']];
       direction.replaceChildren(...options.map(([label, value]) => new Option(label, value)));
       direction.value = selected.drawDirection;
       if (!direction.value) direction.value = line ? 'as-drawn' : outlineDirection(selected.points);
-      direction.disabled = selected.drawSpeed === 0;
+      direction.disabled = selected.drawSpeed === 0 && !selected.noise?.drawSpeed;
       direction.addEventListener('change', () => {
         selected.drawDirection = direction.value;
         updateGuides();
@@ -687,6 +806,10 @@ async function start() {
       ['turbulence', 'Turbulence', 0, 10, 0.05], ['drag', 'Air drag', 0, 8, 0.1, ' /s'],
     ], invalidateSimulation),
   ];
+  for (const field of forceFields) {
+    const key = typeof field.key === 'number' ? WIND_KEYS[field.key] : field.key;
+    attachNoise(field, forces, key, FORCE_BOUNDS[key], invalidateSimulation);
+  }
   const seedField = numberField(forcePanel, 'Seed', 0, 4294967295, 1, forces.seed, value => {
     forces.seed = Math.round(value);
     invalidateSimulation();
@@ -700,22 +823,34 @@ async function start() {
   const effectFields = settingsRanges(cameraPanel, effects, [
     ['depth', 'Depth of field', 0, 5, 0.1],
   ], () => { dirty = true; });
+  for (const field of effectFields) attachNoise(field, effects, field.key, EFFECT_NOISE_BOUNDS[field.key], () => { dirty = true; });
+  attachNoise(focalLengthInput, effects, 'focalLength', FOCAL_LENGTH_BOUNDS, () => { dirty = true; });
+  const surfaceFields = settingsRanges($('material-settings'), effects, [
+    ['metalness', 'Metalness', 0, 1, 0.01], ['roughness', 'Roughness', 0.05, 1, 0.01],
+    ['scratches', 'Scratches', 0, 1, 0.01],
+  ], () => { dirty = true; });
+  for (const field of surfaceFields) attachNoise(field, effects, field.key, EFFECT_NOISE_BOUNDS[field.key], () => { dirty = true; });
   effectFields[0].input.title = 'Controls the blur away from the focus distance.';
   const shutterField = range(cameraPanel, 'Shutter angle', 0, 360, 1, effects.shutter, value => {
     effects.shutter = value;
     syncShutterReadout();
     dirty = true;
   }, '°');
-  function syncShutterReadout() {
-    const ms = Number((effects.shutter * 1000 / (360 * activeRate)).toFixed(2));
-    shutterField.input.parentElement.querySelector('output').value = `${effects.shutter}° · ${ms} ms`;
-    shutterField.input.title = `${ms} ms of motion exposure at ${activeRate} fps`;
+  function shutterLabel(angle) {
+    const ms = Number((angle * 1000 / (360 * activeRate)).toFixed(2));
+    return `${angle}° · ${ms} ms`;
   }
+  function syncShutterReadout() {
+    shutterField.output.value = shutterLabel(effects.shutter);
+    shutterField.input.title = `${shutterLabel(effects.shutter).split(' · ')[1]} of motion exposure at ${activeRate} fps`;
+  }
+  attachNoise(shutterField, effects, 'shutter', EFFECT_NOISE_BOUNDS.shutter, () => { dirty = true; }, shutterLabel);
   syncShutterReadout();
   const focus = range(cameraPanel, 'Focus distance', 0.2, 40, 0.1, effects.focus, value => {
     effects.focus = value;
     dirty = true;
   });
+  attachNoise(focus, effects, 'focus', EFFECT_NOISE_BOUNDS.focus, () => { dirty = true; });
   focus.input.title = 'Distance from the camera lens to the plane that stays sharp.';
   function syncFocusRange() {
     const distance = camera.position.distanceTo(orbit.target);
@@ -826,7 +961,7 @@ async function start() {
         discardCurve();
       }
     }
-    if (event.code !== 'Space' || durationDialog.open || exportDialog.open || printDialog.open || $('slots-dialog').open ||
+    if (event.code !== 'Space' || durationDialog.open || noiseDialog.open || exportDialog.open || printDialog.open || $('slots-dialog').open ||
         (!previewFullscreen && event.target !== document.body)) return;
     event.preventDefault();
     if (!event.repeat) togglePlayback();
@@ -839,10 +974,11 @@ async function start() {
   const referenceSettings = $('reference-settings');
   const referenceDarkening = 60;
   view.referenceDarkening.value = referenceDarkening / 100;
-  range(referenceSettings, 'Reference darkening', 0, 100, 1, referenceDarkening, value => {
+  const referenceField = range(referenceSettings, 'Reference darkening', 0, 100, 1, referenceDarkening, value => {
     view.referenceDarkening.value = value / 100;
     dirty = true;
   }, '%');
+  attachNoise(referenceField, effects, 'referenceDarkening', EFFECT_NOISE_BOUNDS.referenceDarkening, () => { dirty = true; });
   loadReference.addEventListener('click', () => referenceFile.click());
   referenceFile.addEventListener('change', async () => {
     const file = referenceFile.files[0];
@@ -926,18 +1062,24 @@ async function start() {
     const full = previewQuality.value === 'full';
     const adaptive = playing && !full;
     const [scale, sampleCount] = profiles[adaptive ? quality : 0];
-    const previewSamples = effects.depth >= 2.5 ? (playing ? sampleCount * 2 : 16) : sampleCount;
+    const simulationFrame = simulationFrameAtRate(frame, rate);
+    const signals = simulation.noiseAt(simulationFrame * STEP);
+    updateNoiseReadouts(signals);
+    view.referenceDarkening.value = modulationValue(referenceField.input.valueAsNumber, effects.noise.referenceDarkening,
+      EFFECT_NOISE_BOUNDS.referenceDarkening, signals) / 100;
+    const depth = modulationValue(effects.depth, effects.noise.depth, EFFECT_NOISE_BOUNDS.depth, signals);
+    const previewSamples = depth >= 2.5 ? (playing ? sampleCount * 2 : 16) : sampleCount;
     const maxWidth = full ? WIDTH * 2 : WIDTH;
     const pixelRatio = full ? devicePixelRatio : Math.min(devicePixelRatio, 1.5);
     const width = Math.max(128, Math.round(Math.min(stage.clientWidth * pixelRatio, maxWidth) * scale));
     const height = Math.round(width * HEIGHT / WIDTH);
     dirty = false;
     const showGuides = mode !== 'orbit' && !previewFullscreen;
-    const simulationFrame = simulationFrameAtRate(frame, rate);
-    if (showGuides) updateGuideProgress(simulationFrame);
+
     view.draw(simulation, simulationFrame, camera, effects, width, height, {
       exporting: false, sampleCount: previewSamples, winter, black, frameRate: rate,
-      showReference: !previewFullscreen, overlay: showGuides ? guides : null,
+      showReference: !previewFullscreen, overlay: showGuides ? guides : null, target: orbit.target,
+      updateOverlay: () => updateGuideProgress(simulationFrame),
     });
     lastPreviewSamples = previewSamples;
     if (width !== lastWidth) {
@@ -972,6 +1114,7 @@ async function start() {
   const printButton = $('export-print');
   const exportBackground = $('export-background');
   const exportFormat = $('export-format');
+  const movieName = $('movie-name');
   const projectFile = $('project-file');
   const projectStatus = $('project-status');
   let previewSamplesAtOpen;
@@ -980,6 +1123,7 @@ async function start() {
     const movie = exportFormat.value !== 'png';
     exportBackground.closest('label').hidden = movie;
     $('movie-background').hidden = !movie;
+    $('movie-name-row').hidden = !movie;
     $('start-export').textContent = movie ? 'Export MOV' : 'Export ZIP';
   }
   exportFormat.addEventListener('change', syncExportFormat);
@@ -990,7 +1134,7 @@ async function start() {
 
   function openExportDialog(dialog, select) {
     previewSamplesAtOpen = lastPreviewSamples;
-    select.closest('label').hidden = effects.depth === 0;
+    select.closest('label').hidden = effects.depth === 0 && !effects.noise.depth?.amount;
     select.querySelector('[value="preview"]').textContent =
       `Match preview (${previewSamplesAtOpen} samples)`;
     pause();
@@ -1004,7 +1148,7 @@ async function start() {
   function captureProject() {
     return {
       emitters, selectedEmitterId: selected?.id ?? null, soloEmitterId, nextEmitterId: nextId,
-      forces, effects,
+      forces, effects, noiseSources,
       camera: {
         position: camera.position.toArray(), target: orbit.target.toArray(), focalLength, winter, black,
       },
@@ -1023,6 +1167,7 @@ async function start() {
 
   const restoreLastSlot = mountProjectSlots(
     $('slots-dialog'), $('project-slots'), captureProject, restoreProject, structuredClone(captureProject()),
+    (slot, saved) => { if (saved || activeProjectSlot?.index === slot.index) activeProjectSlot = slot; },
   );
 
   $('save-project').addEventListener('click', () => {
@@ -1064,15 +1209,22 @@ async function start() {
     }
   });
 
-  function restoreProject(project) {
+  function restoreProject(project, slot = null) {
+    activeProjectSlot = slot;
     const { wind, ...savedForces } = project.forces;
     Object.assign(forces, savedForces);
     forces.wind.splice(0, 3, ...wind);
     Object.assign(effects, project.effects);
+    project.noiseSources.forEach((source, index) => {
+      Object.assign(noiseSources[index], source);
+      sourceFields[index * 2].setValue(source.rate);
+      sourceFields[index * 2 + 1].setValue(source.detail);
+    });
+    for (const control of noiseControls) control.refresh();
     shutterField.setValue(effects.shutter);
     forceFields.forEach(field => field.sync());
     seedField.setValue(forces.seed);
-    effectFields.forEach(field => field.sync());
+    [...effectFields, ...surfaceFields].forEach(field => field.sync());
 
     camera.position.fromArray(project.camera.position);
     orbit.target.fromArray(project.camera.target);
@@ -1128,7 +1280,10 @@ async function start() {
   $('export-svg').addEventListener('click', () => {
     if (exporting) return;
     try {
-      const svg = renderVectorFrame(view, simulation, simulationFrameAtRate(frame, activeRate), camera, effects, frame);
+      const simulationFrame = simulationFrameAtRate(frame, activeRate);
+      const animatedCamera = view.frameCamera(simulation, camera, effects, simulationFrame, orbit.target);
+      const styledEffects = view.frameEffects(simulation, effects, simulationFrame);
+      const svg = renderVectorFrame(view, simulation, simulationFrame, animatedCamera, styledEffects, frame);
       downloadFile(svg, 'image/svg+xml', `${frameExportName(frame, simulation.visibleEmitterIds)}.svg`);
     } catch (error) {
       $('hint').textContent = 'Could not export this frame as SVG.';
@@ -1154,7 +1309,7 @@ async function start() {
     const frameNumber = frame;
     const snapshot = {
       frame: simulationFrameAtRate(frameNumber, activeRate),
-      camera: camera.clone(),
+      camera: camera.clone(), target: orbit.target.clone(), noiseSources: structuredClone(noiseSources),
       effects: { ...effects },
       frameRate: activeRate,
       black: $('print-background').value === 'black',
@@ -1185,6 +1340,7 @@ async function start() {
     }
   });
   $('export').addEventListener('click', () => {
+    movieName.value = activeProjectSlot?.name ?? '';
     openExportDialog(exportDialog, sequenceSampling);
   });
   $('close-export').addEventListener('click', () => {
@@ -1212,7 +1368,7 @@ async function start() {
     const format = exportFormat.value;
     const movie = format !== 'png';
     $('start-export').disabled = true;
-    exportFormat.disabled = true;
+    exportFormat.disabled = movieName.disabled = true;
     $('close-export').textContent = 'Cancel';
     $('export-background').disabled = true;
     sequenceSampling.disabled = true;
@@ -1230,7 +1386,7 @@ async function start() {
         downloadDestination = null;
       }
       const snapshot = {
-        camera: camera.clone(),
+        camera: camera.clone(), target: orbit.target.clone(), noiseSources: structuredClone(noiseSources),
         frameRate: rate,
         frameCount: count,
         effects: { ...effects },
@@ -1242,7 +1398,8 @@ async function start() {
         black: $('export-background').value === 'black',
       };
       const suffix = emitterFileSuffix(snapshot.visibleEmitterIds);
-      const filename = ARCHIVE_NAME.replace('.zip', movie ? `${suffix}_${format}.mov` : `${suffix}.zip`);
+      const filename = movie ? `${movieFileStem(movieName.value)}${suffix}_${format}.mov`
+        : ARCHIVE_NAME.replace('.zip', `${suffix}.zip`);
       destination = movie ? await temporaryExport('mov') : await chooseDestination(filename);
       signal.throwIfAborted();
       progress.hidden = false;
@@ -1273,7 +1430,7 @@ async function start() {
     } finally {
       exporting = null;
       $('start-export').disabled = false;
-      exportFormat.disabled = false;
+      exportFormat.disabled = movieName.disabled = false;
       $('close-export').textContent = 'Close';
       $('export-background').disabled = false;
       sequenceSampling.disabled = false;
@@ -1323,6 +1480,10 @@ async function decodeReferenceImage(file) {
   }
 }
 
+function movieFileStem(name) {
+  return name.trim().replace(/\.mov$/i, '').replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^[.-]+|[.-]+$/g, '') || '2027particles';
+}
+
 function downloadFile(contents, type, name) {
   const file = contents instanceof Blob ? contents : new Blob([contents], { type });
   const url = URL.createObjectURL(file);
@@ -1341,7 +1502,7 @@ function settingsRanges(container, settings, specs, onChange) {
       settings[key] = value;
       onChange();
     }, suffix);
-    return { input: field.input, sync: () => field.setValue(settings[key]) };
+    return { ...field, key, sync: () => field.setValue(settings[key]) };
   });
 }
 
@@ -1370,7 +1531,8 @@ function range(container, label, min, max, step, value, onChange, suffix = '', d
   Object.assign(input, { type: 'range', min, max, step, value });
   const output = document.createElement('output');
   row.append(output);
-  const updateReadout = () => { output.value = input.value + suffix; };
+  const format = next => next + suffix;
+  const updateReadout = () => { output.value = format(input.value); };
   updateReadout();
   input.addEventListener('input', () => {
     updateReadout();
@@ -1378,7 +1540,7 @@ function range(container, label, min, max, step, value, onChange, suffix = '', d
   });
   resetSliderOnRightClick(input, defaultValue);
   return {
-    input,
+    row, input, output, label, format,
     setValue(next) {
       input.value = next;
       updateReadout();
