@@ -1,8 +1,8 @@
 import * as THREE from 'three/webgpu';
-import { attribute, Fn, mix, normalView, output, packNormalToRGB, renderOutput, sample,
+import { attribute, Fn, mix, nodeObject, normalView, output, packNormalToRGB, renderOutput, sample,
   texture, uniform, unpackRGBToNormal, uv, vec2, vec4 } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { ssr } from 'three/addons/tsl/display/SSRNode.js';
+import SSRNode from 'three/addons/tsl/display/SSRNode.js';
 import { chipGeometries } from './chips.js';
 import { CAPACITY, FPS, STEP } from './simulation.js';
 import { EFFECT_BOUNDS, EMITTER_BOUNDS, FOCAL_LENGTH_BOUNDS, LIVE_EMITTER_KEYS, MATERIAL_DEFAULTS,
@@ -16,6 +16,18 @@ export const HEIGHT = 1080;
 const GOLD = [0xffa320, 0xffc642, 0xffd272, 0xf6a741, 0xffe39b].map(value => new THREE.Color(value));
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const REFLECTION_LAYER = 1;
+
+class ParticleSSRNode extends SSRNode {
+  constructor(beauty, surface, normals, options) {
+    super(beauty, texture(surface.depthTexture), normals, options);
+    this.surface = surface;
+  }
+
+  setSize() {
+    // The export target can be larger than the visible drawing buffer.
+    super.setSize(this.surface.width, this.surface.height);
+  }
+}
 
 function setLifetimeAppearance(material) {
   const appearance = attribute('lifetimeAppearance', 'vec3');
@@ -145,10 +157,10 @@ class ParticleRenderer {
     const beauty = texture(this.samples.texture);
     const surfaceData = texture(surface.texture);
     const normals = sample(uv => unpackRGBToNormal(surfaceData.sample(uv).rgb));
-    const reflected = ssr(beauty, texture(surface.depthTexture), normals, {
+    const reflected = nodeObject(new ParticleSSRNode(beauty, surface, normals, {
       camera: this.sampleCamera, metalnessNode: this.finish.metalness, roughnessNode: this.finish.roughness,
       binaryRefine: true,
-    });
+    }));
     // Each DOF and shutter sample has its own geometry and camera projection.
     reflected.updateBeforeType = THREE.NodeUpdateType.RENDER;
     reflected.resolutionScale = 0.7;
@@ -369,7 +381,7 @@ class ParticleRenderer {
     this.setLighting(settings.lighting);
     this.setChipEdges(settings.beveled === true);
     const reference = !exporting && showReference ? this.reference : null;
-    const reflectionPass = !exporting && settings.ssr && this.supportsSSR
+    const reflectionPass = settings.ssr && this.supportsSSR
       ? (this.reflectionPass ??= this.createReflectionPass()) : null;
     const count = settings.depth || settings.shutter ? sampleCount : 1;
     const focus = Math.max(camera.near * 2, settings.focus);

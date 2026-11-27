@@ -17,14 +17,18 @@ export async function renderPrintFrame(view, snapshot, signal, onProgress) {
   const camera = snapshot.camera.clone();
   const canvas = new OffscreenCanvas(PRINT_WIDTH, PRINT_HEIGHT);
   const context = canvas.getContext('2d');
-  const tileCount = PRINT_WIDTH * PRINT_HEIGHT / (WIDTH * HEIGHT);
+  // SSR needs the whole frame so a reflection can cross a tile boundary.
+  const fullFrame = snapshot.effects.ssr && view.supportsSSR;
+  const width = fullFrame ? PRINT_WIDTH : WIDTH;
+  const height = fullFrame ? PRINT_HEIGHT : HEIGHT;
+  const tileCount = PRINT_WIDTH * PRINT_HEIGHT / (width * height);
   const sampleCount = exportSamples(snapshot);
   let completed = 0;
-  for (let y = 0; y < PRINT_HEIGHT; y += HEIGHT) {
-    for (let x = 0; x < PRINT_WIDTH; x += WIDTH) {
+  for (let y = 0; y < PRINT_HEIGHT; y += height) {
+    for (let x = 0; x < PRINT_WIDTH; x += width) {
       signal.throwIfAborted();
-      camera.setViewOffset(PRINT_WIDTH, PRINT_HEIGHT, x, y, WIDTH, HEIGHT);
-      view.draw(simulation, snapshot.frame, camera, snapshot.effects, WIDTH, HEIGHT, {
+      camera.setViewOffset(PRINT_WIDTH, PRINT_HEIGHT, x, y, width, height);
+      view.draw(simulation, snapshot.frame, camera, snapshot.effects, width, height, {
         exporting: true, sampleCount, black: snapshot.black, frameRate: snapshot.frameRate, target: snapshot.target,
       });
       const tile = await view.readImage();
