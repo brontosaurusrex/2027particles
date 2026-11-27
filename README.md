@@ -69,7 +69,7 @@ Trail length extends each emitter’s curved ribbon up to six seconds. SVG expor
 
 The Noise panel sets the rate and detail for three smooth time-varying channels. Use Noise beside a parameter to select a channel and set its amount as a percentage of the parameter’s range. The thumb sets the base value and the readout shows the effective value. Noise follows the timeline during playback, scrubbing, and export.
 
-The Material panel sets metalness and roughness globally for all chips. Reflection lighting switches between the winter panorama and a photographic studio HDRI independently of the backdrop. Rounded chip edges catch highlights as the particles spin. Both settings are saved with the project and apply to raster exports. SVG exports use simplified vector shading and chip outlines.
+The Material panel sets metalness and roughness globally for all chips. Reflection lighting switches between the winter panorama and a photographic studio HDRI. Enable **Show HDRI backdrop** in Camera to see the active HDRI behind the particles. Rounded chip edges catch highlights as the particles spin. The lighting and rounded edges are saved with the project and apply to raster exports. SVG exports use simplified vector shading and chip outlines.
 
 Enable **Screen-space reflections (SSR)** to add reflections of nearby visible chips to the selected HDRI lighting in the preview, PNG and MOV exports on browsers with floating-point render targets. The setting is off by default and is saved with the project. 4K PNG export with SSR renders the whole frame together to keep reflections continuous.
 

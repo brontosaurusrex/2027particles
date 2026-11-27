@@ -121,7 +121,8 @@ export async function renderFrames(view, snapshot, signal, receive, onProgress) 
   for (let frame = 1; frame <= frameCount; frame++) {
     signal.throwIfAborted();
     view.draw(simulation, simulationFrameAtRate(frame, frameRate), snapshot.camera, snapshot.effects, WIDTH, HEIGHT, {
-      exporting: true, sampleCount, frameRate, target: snapshot.target, winter: snapshot.winter, black: snapshot.black,
+      exporting: true, sampleCount, frameRate, target: snapshot.target, backdrop: snapshot.winter ? 'winter' : undefined,
+      black: snapshot.black,
     });
     const image = await view.readImage();
     signal.throwIfAborted();

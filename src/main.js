@@ -65,7 +65,7 @@ async function start() {
   let frameCount = FRAME_COUNT;
   let dirty = true;
   let ready = false;
-  let winter = false;
+  let showHdri = false;
   let black = false;
   let focalLength = DEFAULT_FOCAL_LENGTH;
   let previewFullscreen = false;
@@ -875,14 +875,15 @@ async function start() {
     focus.setValue(effects.focus);
   }
   orbit.addEventListener('change', syncFocusRange);
-  $('winter').addEventListener('change', event => {
-    winter = event.target.checked;
-    if (winter) black = $('black-preview').checked = false;
+  const hdriBackdrop = $('show-hdri');
+  hdriBackdrop.addEventListener('change', () => {
+    showHdri = hdriBackdrop.checked;
+    if (showHdri) black = $('black-preview').checked = false;
     dirty = true;
   });
   $('black-preview').addEventListener('change', event => {
     black = event.target.checked;
-    if (black) winter = $('winter').checked = false;
+    if (black) showHdri = hdriBackdrop.checked = false;
     dirty = true;
   });
   updateInspector();
@@ -1094,7 +1095,7 @@ async function start() {
     const showGuides = mode !== 'orbit' && !previewFullscreen;
 
     view.draw(simulation, simulationFrame, camera, effects, width, height, {
-      exporting: false, sampleCount: previewSamples, winter, black, frameRate: rate,
+      exporting: false, sampleCount: previewSamples, backdrop: showHdri ? 'active' : undefined, black, frameRate: rate,
       showReference: !previewFullscreen, overlay: showGuides ? guides : null, target: orbit.target,
       updateOverlay: () => updateGuideProgress(simulationFrame),
     });
@@ -1167,7 +1168,8 @@ async function start() {
       emitters, selectedEmitterId: selected?.id ?? null, soloEmitterId, nextEmitterId: nextId,
       forces, effects, noiseSources,
       camera: {
-        position: camera.position.toArray(), target: orbit.target.toArray(), focalLength, winter, black,
+        // Keep the backdrop flag compatible with existing project files.
+        position: camera.position.toArray(), target: orbit.target.toArray(), focalLength, winter: showHdri, black,
       },
       editor: {
         mode, plane: drawingPlane.value, planeOffset: Number(planeOffset.value),
@@ -1251,8 +1253,8 @@ async function start() {
     setLens(project.camera.focalLength);
     focalLengthInput.setValue(focalLength);
     syncFocusRange();
-    winter = project.camera.winter;
-    $('winter').checked = winter;
+    showHdri = project.camera.winter;
+    hdriBackdrop.checked = showHdri;
     black = project.camera.black;
     $('black-preview').checked = black;
     exportBackground.value = project.exportBackground;
@@ -1464,7 +1466,6 @@ async function start() {
   ]);
   if (winterEnvironment.status === 'rejected') {
     console.error('Could not load the winter environment.', winterEnvironment.reason);
-    $('winter').disabled = true;
     $('export-background').querySelector('option[value=winter]').disabled = true;
     $('hint').textContent = 'Could not load winter lighting. You can still preview and export sparks.';
   }
@@ -1473,6 +1474,7 @@ async function start() {
     studioLighting.disabled = true;
     studioLighting.textContent = 'Studio HDRI unavailable';
   }
+  hdriBackdrop.disabled = winterEnvironment.status === 'rejected' && studioEnvironment.status === 'rejected';
   let sharedProject;
   try {
     sharedProject = await readShareLink(location.hash);

@@ -167,7 +167,7 @@ export function decodeProject(contents) {
     camera: {
       position, target,
       focalLength: number(camera.focalLength, ...FOCAL_LENGTH_BOUNDS, 'focal length'),
-      winter: boolean(camera.winter, 'winter backdrop'),
+      winter: boolean(camera.winter, 'HDRI backdrop'),
       black: boolean(camera.black ?? false, 'black preview'),
     },
     editor: {

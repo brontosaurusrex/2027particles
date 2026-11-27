@@ -59,6 +59,7 @@ class ParticleRenderer {
     this.isWebGL = renderer.backend.isWebGLBackend === true;
     this.scene = new THREE.Scene();
     this.backdrop = new THREE.Scene();
+    this.backdrop.backgroundIntensity = 0.96;
     this.camera = new THREE.PerspectiveCamera(43, WIDTH / HEIGHT, 0.08, 120);
     this.sampleCamera = this.camera.clone();
     this.animatedCamera = this.camera.clone();
@@ -219,20 +220,17 @@ class ParticleRenderer {
     const environment = await new HDRLoader().loadAsync(url);
     environment.mapping = THREE.EquirectangularReflectionMapping;
     this.environments[name] = environment;
-    if (name === 'winter') {
-      this.backdrop.background = environment;
-      this.backdrop.backgroundIntensity = 0.96;
-    }
   }
 
   setLighting(lighting) {
-    const studio = lighting === 'studio' ? this.environments.studio : null;
-    const environment = studio ?? this.environments.winter ?? null;
+    const { studio, winter } = this.environments;
+    const environment = this.environments[lighting] ?? winter ?? studio ?? null;
     if (this.scene.environment === environment) return;
     this.scene.environment = environment;
-    this.mainLight.intensity = studio ? 1.5 : 3.6;
-    this.rimLight.intensity = studio ? 1.0 : 2.2;
-    this.fillLight.intensity = studio ? 0.45 : 1.1;
+    const studioLighting = environment === studio;
+    this.mainLight.intensity = studioLighting ? 1.5 : 3.6;
+    this.rimLight.intensity = studioLighting ? 1.0 : 2.2;
+    this.fillLight.intensity = studioLighting ? 0.45 : 1.1;
   }
 
   setChipEdges(beveled) {
@@ -374,12 +372,14 @@ class ParticleRenderer {
 
   draw(simulation, frame, camera, settings, width, height, options) {
     const { renderer, samples, accumulation, sky, output } = this;
-    const { exporting, sampleCount, winter, black, overlay, updateOverlay, showReference, target, frameRate = FPS } = options;
+    const { exporting, sampleCount, backdrop, black, overlay, updateOverlay, showReference, target, frameRate = FPS } = options;
     camera = this.frameCamera(simulation, camera, settings, frame, target);
     settings = this.frameEffects(simulation, settings, frame);
     this.setLighting(settings.lighting);
     this.setChipEdges(settings.beveled === true);
     const reference = !exporting && showReference ? this.reference : null;
+    const environment = backdrop === 'active' ? this.scene.environment : this.environments[backdrop];
+    const showBackdrop = environment && !black && !reference;
     const reflectionPass = settings.ssr && this.supportsSSR
       ? (this.reflectionPass ??= this.createReflectionPass()) : null;
     const count = settings.depth || settings.shutter ? sampleCount : 1;
@@ -402,9 +402,10 @@ class ParticleRenderer {
 
     renderer.autoClear = true;
     renderer.setClearColor(0, 0);
-    if (winter && !black && !reference) {
-      const key = [width, height, ...camera.quaternion.toArray(), camera.fov].join(',');
+    if (showBackdrop) {
+      const key = [environment.uuid, width, height, ...camera.quaternion.toArray(), camera.fov].join(',');
       if (key !== this.skyKey) {
+        this.backdrop.background = environment;
         sky.setSize(Math.min(width, 960), Math.min(height, 540));
         renderer.setRenderTarget(sky);
         renderer.render(this.backdrop, camera);
@@ -439,7 +440,7 @@ class ParticleRenderer {
 
     renderer.autoClear = true;
     renderer.setRenderTarget(exporting ? output : null);
-    this.backdropMode.value = black ? 3 : winter ? 2 : Number(!exporting);
+    this.backdropMode.value = black ? 3 : showBackdrop ? 2 : Number(!exporting);
     (reference?.quad ?? this.composite).render(renderer);
     if (overlay) {
       updateOverlay?.();
