@@ -109,7 +109,8 @@ summary { padding: 13px 15px; font-weight: 650; }
 .select-row, .number-row, .range-row, .check { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 34px; }
 .select-row select { min-width: 116px; }
 .select-row select, .number-row input, .range-row output { max-width: 100%; }
-.range-row { display: grid; grid-template-columns: 6rem 1fr 3.6rem; font-size: .92rem; }
+.range-row { display: grid; grid-template-columns: minmax(max-content, 9.5rem) minmax(0, 1fr) 3.6rem; font-size: .92rem; }
+.range-row > span { white-space: nowrap; }
 .range-row input { width: 100%; min-width: 0; margin: 0; }
 .range-row output { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 .number-row input { width: 92px; }
