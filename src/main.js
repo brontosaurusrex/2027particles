@@ -55,7 +55,7 @@ async function start() {
   let nextId = 2;
   let selected = demo;
   let soloEmitterId = null;
-  let simulation = new Simulation(forces, emitters, view.shapeChoices, visibleEmitterIds(), noiseSources);
+  let simulation = new Simulation(forces, emitters, view.particleShapes, visibleEmitterIds(), noiseSources);
   let playing = true;
   let playStart = performance.now();
   let playFrame = 1;
@@ -135,7 +135,7 @@ async function start() {
   }
 
   function invalidateSimulation() {
-    simulation = new Simulation(forces, emitters, view.shapeChoices, visibleEmitterIds(), noiseSources);
+    simulation = new Simulation(forces, emitters, view.particleShapes, visibleEmitterIds(), noiseSources);
     dirty = true;
   }
 

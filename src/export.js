@@ -13,7 +13,7 @@ function exportSamples(snapshot) {
 }
 
 export async function renderPrintFrame(view, snapshot, signal, onProgress) {
-  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices, snapshot.visibleEmitterIds, snapshot.noiseSources);
+  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.particleShapes, snapshot.visibleEmitterIds, snapshot.noiseSources);
   const camera = snapshot.camera.clone();
   const canvas = new OffscreenCanvas(PRINT_WIDTH, PRINT_HEIGHT);
   const context = canvas.getContext('2d');
@@ -115,7 +115,7 @@ export async function discardDestination(destination) {
 }
 
 export async function renderFrames(view, snapshot, signal, receive, onProgress) {
-  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.shapeChoices, snapshot.visibleEmitterIds, snapshot.noiseSources);
+  const simulation = new Simulation(snapshot.forces, snapshot.emitters, view.particleShapes, snapshot.visibleEmitterIds, snapshot.noiseSources);
   const { frameCount, frameRate } = snapshot;
   const sampleCount = exportSamples(snapshot);
   for (let frame = 1; frame <= frameCount; frame++) {

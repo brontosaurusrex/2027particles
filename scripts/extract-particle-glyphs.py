@@ -1,6 +1,7 @@
 """Write normalized particle contours from the Noto Sans Symbols 2 TTF."""
 
 import json
+import math
 import sys
 
 from fontTools.pens.basePen import BasePen
@@ -11,6 +12,7 @@ SYMBOLS = {
     "star": "★",
     "snowflake": "❄",
     "circle": "●",
+    "plus": "✚",
     "sparkle": "✦",
     "flower": "✿",
     "lightning": "⚡",
@@ -92,6 +94,22 @@ def simplify_loop(loop):
     return simplify_arc(loop[:split + 1])[:-1] + simplify_arc([*loop[split:], start])[:-1]
 
 
+def round_corners(loop, inset):
+    rounded = []
+    for index, corner in enumerate(loop):
+        previous = loop[index - 1]
+        following = loop[(index + 1) % len(loop)]
+        start, end = (
+            tuple(a + (b - a) * inset / math.dist(corner, neighbor) for a, b in zip(corner, neighbor))
+            for neighbor in (previous, following)
+        )
+        for step in range(5):
+            t = step / 4
+            rounded.append([round((1 - t)**2 * a + 2 * (1 - t) * t * b + t**2 * c, 4)
+                            for a, b, c in zip(start, corner, end)])
+    return rounded
+
+
 def glyph_faces(glyph_set, glyph_name):
     pen = OutlinePen(glyph_set)
     glyph_set[glyph_name].draw(pen)
@@ -129,5 +147,6 @@ with TTFont(sys.argv[1]) as font:
     glyphs = font.getGlyphSet()
     cmap = font.getBestCmap()
     outlines = {name: glyph_faces(glyphs, cmap[ord(symbol)]) for name, symbol in SYMBOLS.items()}
+    outlines['plus'][0][0] = round_corners(outlines['plus'][0][0], 0.09)
     entries = [f"  {json.dumps(name)}: {json.dumps(faces, separators=(',', ':'))}" for name, faces in outlines.items()]
     print("{\n" + ",\n".join(entries) + "\n}")

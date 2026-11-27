@@ -85,8 +85,7 @@ class ParticleRenderer {
     this.beveled = false;
     this.chips = this.sharpGeometries.map(geometry => this.createBatch(geometry, gold));
     this.chips.forEach(mesh => mesh.layers.enable(REFLECTION_LAYER));
-    this.shapeChoices = this.chips.flatMap((mesh, index) =>
-      mesh.geometry.userData.symbol === 'circle' ? [index, index] : [index]);
+    this.particleShapes = this.chips.map(mesh => mesh.geometry.userData.symbol);
 
     const star = new THREE.Shape();
     const points = [[0, 1], [0.12, 0.12], [0.78, 0], [0.12, -0.12], [0, -1],

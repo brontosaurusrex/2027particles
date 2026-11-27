@@ -265,14 +265,13 @@ function particleHistory(position) {
 }
 
 export class Simulation {
-  constructor(settings, emitters, shapeChoices, visibleEmitterIds = null, sources = []) {
+  constructor(settings, emitters, particleShapes, visibleEmitterIds = null, sources = []) {
     this.settings = settings;
     this.noiseSources = sources;
     this.simulationNoise = Object.keys(settings.noise ?? {}).length || emitters.some(emitter => Object.keys(emitter.noise ?? {}).length);
     this.emitters = emitters.map(emitter => ({ ...emitter, ...emitterSampler(emitter), drawDuration: strokeDuration(emitter) }));
-    this.shapeChoices = shapeChoices;
-    this.uniqueShapes = [...new Set(shapeChoices)];
-    this.circleShape = shapeChoices.find((shape, index) => shapeChoices.indexOf(shape) !== index) ?? shapeChoices[0];
+    this.shapeChoices = particleShapes.map((_, index) => index);
+    this.circleShape = Math.max(0, particleShapes.indexOf('circle'));
     this.visibleEmitterIds = visibleEmitterIds;
     this.reset();
   }
@@ -320,7 +319,7 @@ export class Simulation {
     const random = this.fragmentRandom;
     const offset = TAU * random();
     const colorOffset = random();
-    const shapes = this.uniqueShapes.filter(shape => shape !== parent.shape);
+    const shapes = this.shapeChoices.filter(shape => shape !== parent.shape);
     const spin = Math.hypot(...parent.spin);
     const glintChance = Math.min(1, parent.glintChance * BURST_GLINT_BOOST);
     for (let index = 0; index < burstCount; index++) {
