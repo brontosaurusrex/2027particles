@@ -1,10 +1,10 @@
 import * as THREE from 'three/webgpu';
 import {
-  attribute, bumpMap, mix, output, positionLocal, renderOutput,
-  texture, uniform, uv, vec2, vec4,
+  attribute, materialColor, materialEmissive, mix, normalMap, output, renderOutput, smoothstep,
+  texture, uniform, uv, vec2, vec3, vec4,
 } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { chipGeometries, scratchHeightMap } from './chips.js';
+import { chipGeometries, scratchNormalMap, SCRATCH_DISTANCE_LIMIT, SCRATCH_MAP_SIZE } from './chips.js';
 import { CAPACITY, FPS, STEP } from './simulation.js';
 import { EFFECT_BOUNDS, EMITTER_BOUNDS, FOCAL_LENGTH_BOUNDS, LIVE_EMITTER_KEYS, MATERIAL_DEFAULTS,
   modulateSettings, modulationValue } from './modulation.js';
@@ -64,11 +64,21 @@ class ParticleRenderer {
       transparent: true, depthWrite: false,
     }));
     this.finish = Object.fromEntries(Object.entries(MATERIAL_DEFAULTS).map(([key, value]) => [key, uniform(value)]));
-    const scratchUV = positionLocal.xy.mul(0.5).add(0.5);
-    const scratchHeight = texture(scratchHeightMap(), scratchUV).r;
+    const scratchUV = uv().mul(0.5).add(0.5);
+    const scratches = texture(scratchNormalMap(), scratchUV);
+    const scratchDistance = scratches.a.mul(SCRATCH_DISTANCE_LIMIT + 1).sub(1);
+    const pixelSpan = scratchUV.fwidth().length().mul(SCRATCH_MAP_SIZE);
+    const scratchStrength = this.finish.scratches.sqrt();
+    const edgeWidth = pixelSpan.mul(0.42).clamp(0.4, 12);
+    const groove = smoothstep(-0.4, edgeWidth, scratchDistance).oneMinus();
+    const grooveVisibility = smoothstep(18, 44, pixelSpan).oneMinus();
+    const scratchShade = groove.mul(grooveVisibility).mul(scratchStrength).mul(0.62).oneMinus();
+    const normalStrength = scratchStrength.mul(smoothstep(2, 9, pixelSpan).oneMinus());
     gold.metalnessNode = this.finish.metalness;
     gold.roughnessNode = this.finish.roughness;
-    gold.normalNode = bumpMap(scratchHeight, this.finish.scratches.mul(0.8));
+    gold.colorNode = materialColor.mul(scratchShade);
+    gold.emissiveNode = materialEmissive.mul(scratchShade);
+    gold.normalNode = normalMap(vec3(scratches.rg.mul(255 / 256), scratches.b), vec2(normalStrength));
     this.chips = chipGeometries().map(geometry => this.createBatch(geometry, gold));
     this.shapeChoices = this.chips.flatMap((mesh, index) =>
       mesh.geometry.userData.symbol === 'circle' ? [index, index] : [index]);
