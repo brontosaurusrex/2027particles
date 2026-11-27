@@ -1,10 +1,7 @@
 import * as THREE from 'three/webgpu';
-import {
-  attribute, materialColor, materialEmissive, mix, normalMap, output, renderOutput, smoothstep,
-  texture, uniform, uv, vec2, vec3, vec4,
-} from 'three/tsl';
+import { attribute, mix, output, renderOutput, texture, uniform, uv, vec2, vec4 } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { chipGeometries, scratchNormalMap, SCRATCH_DISTANCE_LIMIT, SCRATCH_MAP_SIZE } from './chips.js';
+import { chipGeometries } from './chips.js';
 import { CAPACITY, FPS, STEP } from './simulation.js';
 import { EFFECT_BOUNDS, EMITTER_BOUNDS, FOCAL_LENGTH_BOUNDS, LIVE_EMITTER_KEYS, MATERIAL_DEFAULTS,
   modulateSettings, modulationValue } from './modulation.js';
@@ -53,33 +50,25 @@ class ParticleRenderer {
     this.object = new THREE.Object3D();
     this.spinAxis = new THREE.Vector3();
 
-    const mainLight = new THREE.DirectionalLight(0xffe1a7, 3.6);
-    mainLight.position.set(-4, 6, 4);
-    const rimLight = new THREE.DirectionalLight(0xffb047, 2.2);
-    rimLight.position.set(5, 1, -4);
-    this.scene.add(mainLight, rimLight, new THREE.HemisphereLight(0xffebbc, 0x493320, 1.1));
+    this.mainLight = new THREE.DirectionalLight(0xffe1a7, 3.6);
+    this.mainLight.position.set(-4, 6, 4);
+    this.rimLight = new THREE.DirectionalLight(0xffb047, 2.2);
+    this.rimLight.position.set(5, 1, -4);
+    this.fillLight = new THREE.HemisphereLight(0xffebbc, 0x493320, 1.1);
+    this.scene.add(this.mainLight, this.rimLight, this.fillLight);
+    this.scene.environmentIntensity = 1.25;
+    this.environments = {};
 
     const gold = setLifetimeAppearance(new THREE.MeshStandardNodeMaterial({
       metalness: 0.80, roughness: 0.22, emissive: 0xe89c32, emissiveIntensity: 0.34,
       transparent: true, depthWrite: false,
     }));
     this.finish = Object.fromEntries(Object.entries(MATERIAL_DEFAULTS).map(([key, value]) => [key, uniform(value)]));
-    const scratchUV = uv().mul(0.5).add(0.5);
-    const scratches = texture(scratchNormalMap(), scratchUV);
-    const scratchDistance = scratches.a.mul(SCRATCH_DISTANCE_LIMIT + 1).sub(1);
-    const pixelSpan = scratchUV.fwidth().length().mul(SCRATCH_MAP_SIZE);
-    const scratchStrength = this.finish.scratches.sqrt();
-    const edgeWidth = pixelSpan.mul(0.42).clamp(0.4, 12);
-    const groove = smoothstep(-0.4, edgeWidth, scratchDistance).oneMinus();
-    const grooveVisibility = smoothstep(18, 44, pixelSpan).oneMinus();
-    const scratchShade = groove.mul(grooveVisibility).mul(scratchStrength).mul(0.62).oneMinus();
-    const normalStrength = scratchStrength.mul(smoothstep(2, 9, pixelSpan).oneMinus());
     gold.metalnessNode = this.finish.metalness;
     gold.roughnessNode = this.finish.roughness;
-    gold.colorNode = materialColor.mul(scratchShade);
-    gold.emissiveNode = materialEmissive.mul(scratchShade);
-    gold.normalNode = normalMap(vec3(scratches.rg.mul(255 / 256), scratches.b), vec2(normalStrength));
-    this.chips = chipGeometries().map(geometry => this.createBatch(geometry, gold));
+    this.sharpGeometries = chipGeometries();
+    this.beveled = false;
+    this.chips = this.sharpGeometries.map(geometry => this.createBatch(geometry, gold));
     this.shapeChoices = this.chips.flatMap((mesh, index) =>
       mesh.geometry.userData.symbol === 'circle' ? [index, index] : [index]);
 
@@ -161,13 +150,39 @@ class ParticleRenderer {
     this.reference = { texture: map, quad: compositeQuad(display) };
   }
 
-  async loadEnvironment(url) {
+  async loadEnvironment(name, url) {
     const environment = await new HDRLoader().loadAsync(url);
     environment.mapping = THREE.EquirectangularReflectionMapping;
+    this.environments[name] = environment;
+    if (name === 'winter') {
+      this.backdrop.background = environment;
+      this.backdrop.backgroundIntensity = 0.96;
+    }
+  }
+
+  setLighting(lighting) {
+    const studio = lighting === 'studio' ? this.environments.studio : null;
+    const environment = studio ?? this.environments.winter ?? null;
+    if (this.scene.environment === environment) return;
     this.scene.environment = environment;
-    this.scene.environmentIntensity = 1.25;
-    this.backdrop.background = environment;
-    this.backdrop.backgroundIntensity = 0.96;
+    this.mainLight.intensity = studio ? 1.5 : 3.6;
+    this.rimLight.intensity = studio ? 1.0 : 2.2;
+    this.fillLight.intensity = studio ? 0.45 : 1.1;
+  }
+
+  setChipEdges(beveled) {
+    if (this.beveled === beveled) return;
+    if (beveled && !this.beveledGeometries) {
+      this.beveledGeometries = chipGeometries(true);
+      this.beveledGeometries.forEach((geometry, index) => {
+        const sharp = this.sharpGeometries[index];
+        geometry.setAttribute('lifetimeAppearance', sharp.getAttribute('lifetimeAppearance'));
+        geometry.setAttribute('paletteTint', sharp.getAttribute('paletteTint'));
+      });
+    }
+    const geometries = beveled ? this.beveledGeometries : this.sharpGeometries;
+    this.chips.forEach((mesh, index) => { mesh.geometry = geometries[index]; });
+    this.beveled = beveled;
   }
 
   createBatch(geometry, material) {
@@ -297,6 +312,8 @@ class ParticleRenderer {
     const { exporting, sampleCount, winter, black, overlay, updateOverlay, showReference, target, frameRate = FPS } = options;
     camera = this.frameCamera(simulation, camera, settings, frame, target);
     settings = this.frameEffects(simulation, settings, frame);
+    this.setLighting(settings.lighting);
+    this.setChipEdges(settings.beveled === true);
     const reference = !exporting && showReference ? this.reference : null;
     const count = settings.depth || settings.shutter ? sampleCount : 1;
     const focus = Math.max(camera.near * 2, settings.focus);

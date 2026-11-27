@@ -124,6 +124,8 @@ export function decodeProject(contents) {
 
   if (!Array.isArray(project.emitters) || project.emitters.length > EMITTER_LIMIT) invalid('emitters');
   const effects = object(project.effects, 'camera effects');
+  const effectNoise = { ...object(effects.noise ?? {}, 'noise assignments') };
+  delete effectNoise.scratches;
   const sourceValues = project.noiseSources ?? NOISE_DEFAULTS;
   if (!Array.isArray(sourceValues) || sourceValues.length !== NOISE_DEFAULTS.length) invalid('noise sources');
   const noiseSources = sourceValues.map(source => boundedSettings(object(source, 'noise source'), CHANNEL_BOUNDS, 'noise source'));
@@ -157,7 +159,9 @@ export function decodeProject(contents) {
     },
     effects: {
       ...boundedSettings({ ...MATERIAL_DEFAULTS, ...effects }, EFFECT_BOUNDS, 'camera effect'),
-      noise: assignments(effects.noise, EFFECT_NOISE_BOUNDS),
+      lighting: choice(effects.lighting ?? 'winter', ['winter', 'studio'], 'reflection lighting'),
+      beveled: boolean(effects.beveled ?? false, 'rounded chip edges'),
+      noise: assignments(effectNoise, EFFECT_NOISE_BOUNDS),
     },
     camera: {
       position, target,

@@ -69,7 +69,7 @@ Trail length extends each emitter’s curved ribbon up to six seconds. SVG expor
 
 The Noise panel sets the rate and detail for three smooth time-varying channels. Use Noise beside a parameter to select a channel and set its amount as a percentage of the parameter’s range. The thumb sets the base value and the readout shows the effective value. Noise follows the timeline during playback, scrubbing, and export.
 
-The Material panel sets metalness, roughness, and scratches globally for all chips. Fine scratches combine normal-map detail with local contrast in the preview and raster exports.
+The Material panel sets metalness and roughness globally for all chips. Reflection lighting switches between the winter panorama and a photographic studio HDRI independently of the backdrop. Rounded chip edges catch highlights as the particles spin. Both settings are saved with the project and apply to raster exports. SVG exports use simplified vector shading and chip outlines.
 
 Export animation also offers **ProRes 422 MOV** and **CineForm MOV** at 1920 × 1080 with a black background and Rec.709 SDR color. The browser encodes the movie locally and offers a download after rendering. The movie file name starts with the loaded or saved slot name and can be edited before export. Black PNGs use the same composition as Preview on black and carry an sRGB tag.
 
@@ -77,4 +77,4 @@ The MOV encoder uses [FFmpeg 7.1.2](https://ffmpeg.org/releases/ffmpeg-7.1.2.tar
 
 Particle contours come from [Noto Sans Symbols 2](https://github.com/google/fonts/tree/7b6724ac7ececc713e9ba93af309f7520c9a80a3/ofl/notosanssymbols2) under the [SIL Open Font License](public/licenses/NotoSansSymbols2-OFL.txt). To regenerate them from the source TTF, run `uv run --no-project --with fonttools python scripts/extract-particle-glyphs.py NotoSansSymbols2-Regular.ttf > src/particle-glyphs.json`.
 
-The winter environment is [Snowy Field by Andreas Mischok](https://polyhaven.com/a/snowy_field), distributed under CC0.
+The HDRI environments are [Snowy Field by Andreas Mischok](https://polyhaven.com/a/snowy_field) and [Studio Small 03 by Greg Zaal](https://polyhaven.com/a/studio_small_03), distributed under CC0.

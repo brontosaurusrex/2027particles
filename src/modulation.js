@@ -3,7 +3,7 @@ export const MAX_TRAIL_MS = 6000;
 export const MAX_FOCUS_DISTANCE = 300;
 export const FOCAL_LENGTH_BOUNDS = [25, 200];
 
-export const MATERIAL_DEFAULTS = { metalness: 0.8, roughness: 0.22, scratches: 0.16 };
+export const MATERIAL_DEFAULTS = { metalness: 0.8, roughness: 0.22 };
 export const NOISE_DEFAULTS = [{ rate: 0.5, detail: 20 }, { rate: 1, detail: 20 }, { rate: 2, detail: 20 }];
 export const CHANNEL_BOUNDS = { rate: [0.05, 8], detail: [0, 100] };
 
@@ -23,7 +23,7 @@ export const FORCE_BOUNDS = {
 export const WIND_KEYS = ['windX', 'windY', 'windZ'];
 export const EFFECT_BOUNDS = {
   depth: [0, 5], shutter: [0, 360], focus: [0.2, MAX_FOCUS_DISTANCE],
-  metalness: [0, 1], roughness: [0.05, 1], scratches: [0, 1],
+  metalness: [0, 1], roughness: [0.05, 1],
 };
 export const EFFECT_NOISE_BOUNDS = { ...EFFECT_BOUNDS, focalLength: FOCAL_LENGTH_BOUNDS, referenceDarkening: [0, 100] };
 export const LIVE_EMITTER_KEYS = ['trail', 'trailWidth', 'trailLengthVariation', 'trailWidthVariation', 'hueVariation'];

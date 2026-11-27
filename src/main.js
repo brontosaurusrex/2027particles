@@ -42,7 +42,7 @@ async function start() {
   const orbit = new OrbitControls(camera, renderer.domElement);
 
   const forces = { gravity: 2.2, wind: [0.35, 0, -0.20], turbulence: 0.90, drag: 1.5, seed: 2027, noise: {} };
-  const effects = { depth: 1, shutter: 90, focus: 9.6, ...MATERIAL_DEFAULTS, noise: {} };
+  const effects = { depth: 1, shutter: 90, focus: 9.6, ...MATERIAL_DEFAULTS, lighting: 'winter', beveled: false, noise: {} };
   const noiseSources = structuredClone(NOISE_DEFAULTS);
   let activeProjectSlot = null;
   const demo = createEmitter(1, 'line', [
@@ -825,9 +825,19 @@ async function start() {
   ], () => { dirty = true; });
   for (const field of effectFields) attachNoise(field, effects, field.key, EFFECT_NOISE_BOUNDS[field.key], () => { dirty = true; });
   attachNoise(focalLengthInput, effects, 'focalLength', FOCAL_LENGTH_BOUNDS, () => { dirty = true; });
+  const reflectionLighting = $('reflection-lighting');
+  const beveledEdges = $('beveled-edges');
+  const studioLighting = reflectionLighting.querySelector('[value="studio"]');
+  reflectionLighting.addEventListener('change', () => {
+    effects.lighting = reflectionLighting.value;
+    dirty = true;
+  });
+  beveledEdges.addEventListener('change', () => {
+    effects.beveled = beveledEdges.checked;
+    dirty = true;
+  });
   const surfaceFields = settingsRanges($('material-settings'), effects, [
     ['metalness', 'Metalness', 0, 1, 0.01], ['roughness', 'Roughness', 0.05, 1, 0.01],
-    ['scratches', 'Scratches', 0, 1, 0.01],
   ], () => { dirty = true; });
   for (const field of surfaceFields) attachNoise(field, effects, field.key, EFFECT_NOISE_BOUNDS[field.key], () => { dirty = true; });
   effectFields[0].input.title = 'Controls the blur away from the focus distance.';
@@ -1225,6 +1235,8 @@ async function start() {
     forceFields.forEach(field => field.sync());
     seedField.setValue(forces.seed);
     [...effectFields, ...surfaceFields].forEach(field => field.sync());
+    reflectionLighting.value = effects.lighting;
+    beveledEdges.checked = effects.beveled;
 
     camera.position.fromArray(project.camera.position);
     orbit.target.fromArray(project.camera.target);
@@ -1438,13 +1450,20 @@ async function start() {
     }
   });
 
-  try {
-    await view.loadEnvironment(`${import.meta.env.BASE_URL}snowy_field_1k.hdr`);
-  } catch (error) {
-    console.error('Could not load the winter environment.', error);
+  const [winterEnvironment, studioEnvironment] = await Promise.allSettled([
+    view.loadEnvironment('winter', `${import.meta.env.BASE_URL}snowy_field_1k.hdr`),
+    view.loadEnvironment('studio', `${import.meta.env.BASE_URL}studio_small_03_1k.hdr`),
+  ]);
+  if (winterEnvironment.status === 'rejected') {
+    console.error('Could not load the winter environment.', winterEnvironment.reason);
     $('winter').disabled = true;
     $('export-background').querySelector('option[value=winter]').disabled = true;
     $('hint').textContent = 'Could not load winter lighting. You can still preview and export sparks.';
+  }
+  if (studioEnvironment.status === 'rejected') {
+    console.error('Could not load the studio environment.', studioEnvironment.reason);
+    studioLighting.disabled = true;
+    studioLighting.textContent = 'Studio HDRI unavailable';
   }
   let sharedProject;
   try {

@@ -98,8 +98,7 @@ function vectorParticles(batches, camera, glints = false) {
   const view = new Matrix4();
   const color = new Color();
   for (const batch of batches) {
-    const { outline, faces, symbol } = batch.geometry.userData;
-    const halfDepth = glints ? 0 : batch.geometry.parameters.options.depth / 2;
+    const { outline, faces, symbol, depth } = batch.geometry.userData;
     const appearance = batch.geometry.attributes.lifetimeAppearance;
     for (let index = 0; index < batch.count; index++) {
       const opacity = appearance.getX(index);
@@ -118,7 +117,7 @@ function vectorParticles(batches, camera, glints = false) {
         contents = `<path fill="#${fill}" d="${pathData(shape)}"/>`;
       } else {
         const tinted = tintVectorColor(color, batch.geometry.attributes.paletteTint, index);
-        contents = chipFaces(faces, halfDepth, world, view, camera, rotateHue(tinted, angle), brightness);
+        contents = chipFaces(faces, depth / 2, world, view, camera, rotateHue(tinted, angle), brightness);
       }
       const shape = symbol ? ` data-shape="${symbol}"` : '';
       if (contents) groups.push({ z: view.elements[14], svg: `<g${shape} opacity="${alpha(opacity)}">${contents}</g>` });
