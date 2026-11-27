@@ -110,9 +110,9 @@ summary { padding: 13px 15px; font-weight: 650; }
 .select-row select { min-width: 116px; }
 .select-row select, .number-row input, .range-row output { max-width: 100%; }
 .range-row { display: grid; grid-template-columns: minmax(max-content, 9.5rem) minmax(0, 1fr) 3.6rem; font-size: .92rem; }
-.range-row > span { white-space: nowrap; }
+.range-row > span { white-space: nowrap; text-align: end; }
 .range-row input { width: 100%; min-width: 0; margin: 0; }
-.range-row output { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.range-row output { color: var(--muted); text-align: start; font-variant-numeric: tabular-nums; }
 .number-row input { width: 92px; }
 .check { justify-content: start; }
 .transform { border-top: 1px solid var(--line); margin: 8px 0; }
@@ -142,8 +142,9 @@ dialog progress { width: 100%; margin-top: 14px; }
   .toolbar, .timeline { padding-inline: 8px; }
   #backend { display: none; }
   .range-row { grid-template-columns: 1fr auto; }
+  .range-row > span { text-align: start; }
   .range-row input { grid-column: 1 / -1; grid-row: 2; }
-  .range-row output { grid-column: 2; grid-row: 1; }
+  .range-row output { grid-column: 2; grid-row: 1; text-align: end; }
 }
 @media (max-width: 470px) {
   .ticks span:not(:first-child):not(:last-child) { display: none; }
