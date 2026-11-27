@@ -69,7 +69,7 @@ Trail length extends each emitter’s curved ribbon up to six seconds. SVG expor
 
 The Noise panel sets the rate and detail for three smooth time-varying channels. Use Noise beside a parameter to select a channel and set its amount as a percentage of the parameter’s range. The thumb sets the base value and the readout shows the effective value. Noise follows the timeline during playback, scrubbing, and export.
 
-The Material panel sets metalness, roughness, and scratches globally for all chips. Scratch detail is visible up close in the preview and raster exports.
+The Material panel sets metalness, roughness, and scratches globally for all chips. Fine scratches perturb the surface normals and show up in reflections in the preview and raster exports.
 
 Export animation also offers **ProRes 422 MOV** and **CineForm MOV** at 1920 × 1080 with a black background and Rec.709 SDR color. The browser encodes the movie locally and offers a download after rendering. The movie file name starts with the loaded or saved slot name and can be edited before export. Black PNGs use the same composition as Preview on black and carry an sRGB tag.
 

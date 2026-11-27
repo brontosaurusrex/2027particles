@@ -1,10 +1,10 @@
 import * as THREE from 'three/webgpu';
 import {
-  attribute, materialColor, mix, mx_noise_float, output, positionLocal, renderOutput, smoothstep,
-  texture, uniform, uv, vec2, vec3, vec4,
+  attribute, bumpMap, mix, output, positionLocal, renderOutput,
+  texture, uniform, uv, vec2, vec4,
 } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { chipGeometries } from './chips.js';
+import { chipGeometries, scratchHeightMap } from './chips.js';
 import { CAPACITY, FPS, STEP } from './simulation.js';
 import { EFFECT_BOUNDS, EMITTER_BOUNDS, FOCAL_LENGTH_BOUNDS, LIVE_EMITTER_KEYS, MATERIAL_DEFAULTS,
   modulateSettings, modulationValue } from './modulation.js';
@@ -64,12 +64,11 @@ class ParticleRenderer {
       transparent: true, depthWrite: false,
     }));
     this.finish = Object.fromEntries(Object.entries(MATERIAL_DEFAULTS).map(([key, value]) => [key, uniform(value)]));
-    const scratchPosition = positionLocal.mul(vec3(4, 63, 7));
-    const resolved = smoothstep(0.4, 1.6, scratchPosition.y.fwidth()).oneMinus();
-    const cuts = smoothstep(0.16, 0.5, mx_noise_float(scratchPosition)).mul(resolved).mul(this.finish.scratches);
+    const scratchUV = positionLocal.xy.mul(0.5).add(0.5);
+    const scratchHeight = texture(scratchHeightMap(), scratchUV).r;
     gold.metalnessNode = this.finish.metalness;
-    gold.roughnessNode = this.finish.roughness.add(cuts.mul(0.35)).min(1);
-    gold.colorNode = materialColor.mul(cuts.mul(0.32).oneMinus());
+    gold.roughnessNode = this.finish.roughness;
+    gold.normalNode = bumpMap(scratchHeight, this.finish.scratches.mul(0.8));
     this.chips = chipGeometries().map(geometry => this.createBatch(geometry, gold));
     this.shapeChoices = this.chips.flatMap((mesh, index) =>
       mesh.geometry.userData.symbol === 'circle' ? [index, index] : [index]);
