@@ -370,16 +370,36 @@ export class Simulation {
       const emitter = modulateSettings(base, EMITTER_BOUNDS, signals);
       const { drawDuration } = base;
       const animatedDraw = base.kind !== 'area' && base.noise?.drawSpeed?.amount;
+      const tracing = animatedDraw || Number.isFinite(drawDuration);
       const progress = base.reveal;
       const drawRate = emitter.drawSpeed / 100;
       if (animatedDraw ? progress >= 1 : start >= drawDuration) continue;
       const activeEnd = animatedDraw
         ? Math.min(end, drawRate > 0 ? start + (1 - progress) / drawRate : end)
         : Math.min(end, drawDuration);
-      if (animatedDraw) base.reveal = Math.min(1, progress + STEP * drawRate);
+      if (animatedDraw) {
+        const revealed = progress + STEP * drawRate;
+        base.reveal = revealed >= 1 - 1e-8 ? 1 : revealed;
+      }
       if (base.path && base.noise?.smoothing?.amount && !base.primitive) {
         base.currentPath = strokePath(animatedDraw ? { ...emitter, drawSpeed: 1 } : emitter);
       }
+      const animatedRate = base.noise?.rate?.amount;
+      const countAtStart = animatedRate ? base.emission : start * emitter.rate;
+      const countAtEnd = animatedRate ? countAtStart + (activeEnd - start) * emitter.rate : activeEnd * emitter.rate;
+      if (animatedRate) base.emission = countAtEnd;
+      const first = Math.floor(countAtStart + 1e-8) + 1;
+      const regularLast = Math.floor(countAtEnd + 1e-8);
+      const finishes = emitter.rate > 0 && (animatedDraw ? base.reveal === 1 : activeEnd === drawDuration);
+      const last = finishes ? Math.max(first, regularLast) : regularLast;
+      if (first > last) continue;
+
+      // Keep a moving tip emitting when the particle pool is full. Favor recycling from its own stroke.
+      if (tracing && this.particles.length >= CAPACITY) {
+        const oldest = this.particles.findIndex(particle => particle.emitterId === emitter.id);
+        this.particles.splice(Math.max(0, oldest), 1);
+      }
+      const firstBirth = tracing ? Math.max(first, last - (CAPACITY - this.particles.length) + 1) : first;
       const sizeVariation = (emitter.sizeVariation ?? 100) / 100;
       const lifetimeVariation = (emitter.lifetimeVariation ?? DEFAULT_LIFETIME_VARIATION) / 100;
       const hueRange = MathUtils.degToRad(emitter.hueVariation ?? 0);
@@ -393,18 +413,13 @@ export class Simulation {
       const glintChance = (emitter.sparkleAmount ?? 0) / 100;
       const burstSizeVariation = (emitter.burstSizeVariation ?? 0) / 100;
       const maxBurstCount = BURST_SIZE + Math.round(3 * burstSizeVariation);
-      const animatedRate = base.noise?.rate?.amount;
-      const countAtStart = animatedRate ? base.emission : start * emitter.rate;
-      const countAtEnd = animatedRate ? countAtStart + (activeEnd - start) * emitter.rate : activeEnd * emitter.rate;
-      if (animatedRate) base.emission = countAtEnd;
-      const first = Math.floor(countAtStart + 1e-8) + 1;
-      const last = Math.floor(countAtEnd + 1e-8);
-      for (let i = first; i <= last && this.particles.length < CAPACITY; i++) {
-        const birth = animatedRate
-          ? Math.max(start, start + (i - 0.5 - countAtStart) / emitter.rate)
-          : Math.max(start, (i - 0.5) / emitter.rate);
-        const reveal = animatedDraw ? progress + (birth - start) * drawRate
-          : Number.isFinite(drawDuration) ? birth / drawDuration : undefined;
+      for (let i = firstBirth; i <= last && this.particles.length < CAPACITY; i++) {
+        const scheduled = animatedRate ? start + (i - 0.5 - countAtStart) / emitter.rate : (i - 0.5) / emitter.rate;
+        // Use the final regular birth or the middle of the last interval so the tip renders in the last frame.
+        const birth = i > regularLast ? (start + activeEnd) / 2 : Math.max(start, scheduled);
+        let reveal = animatedDraw ? progress + (birth - start) * drawRate
+          : tracing ? birth / drawDuration : undefined;
+        if (finishes && i === last) reveal = 1;
         const position = base.sample(random, reveal, base.currentPath);
         if (birthScatter > 0) {
           const z = 2 * this.scatterRandom() - 1;
@@ -457,7 +472,8 @@ export class Simulation {
         };
         particle.hue = particle.hueFactor * hueRange;
         this.particles.push(particle);
-        if (weldingSparks > 0 && this.particles.length < CAPACITY && this.weldingRandom() * 100 < weldingSparks) {
+        const remainingTipBirths = finishes ? last - i : 0;
+        if (weldingSparks > 0 && this.particles.length < CAPACITY - remainingTipBirths && this.weldingRandom() * 100 < weldingSparks) {
           const sparks = this.weldingRandom;
           this.particles.push({
             ...particle,
