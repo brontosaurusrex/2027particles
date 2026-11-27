@@ -42,7 +42,7 @@ async function start() {
   const orbit = new OrbitControls(camera, renderer.domElement);
 
   const forces = { gravity: 2.2, wind: [0.35, 0, -0.20], turbulence: 0.90, drag: 1.5, seed: 2027, noise: {} };
-  const effects = { depth: 1, shutter: 90, focus: 9.6, ...MATERIAL_DEFAULTS, lighting: 'winter', beveled: false, noise: {} };
+  const effects = { depth: 1, shutter: 90, focus: 9.6, ...MATERIAL_DEFAULTS, lighting: 'winter', beveled: false, ssr: false, noise: {} };
   const noiseSources = structuredClone(NOISE_DEFAULTS);
   let activeProjectSlot = null;
   const demo = createEmitter(1, 'line', [
@@ -827,7 +827,14 @@ async function start() {
   attachNoise(focalLengthInput, effects, 'focalLength', FOCAL_LENGTH_BOUNDS, () => { dirty = true; });
   const reflectionLighting = $('reflection-lighting');
   const beveledEdges = $('beveled-edges');
+  const screenSpaceReflections = $('screen-space-reflections');
   const studioLighting = reflectionLighting.querySelector('[value="studio"]');
+  screenSpaceReflections.disabled = !view.supportsSSR;
+  if (!view.supportsSSR) screenSpaceReflections.closest('label').title = 'SSR requires a floating-point render target.';
+  screenSpaceReflections.addEventListener('change', () => {
+    effects.ssr = screenSpaceReflections.checked;
+    dirty = true;
+  });
   reflectionLighting.addEventListener('change', () => {
     effects.lighting = reflectionLighting.value;
     dirty = true;
@@ -1237,6 +1244,7 @@ async function start() {
     [...effectFields, ...surfaceFields].forEach(field => field.sync());
     reflectionLighting.value = effects.lighting;
     beveledEdges.checked = effects.beveled;
+    screenSpaceReflections.checked = effects.ssr;
 
     camera.position.fromArray(project.camera.position);
     orbit.target.fromArray(project.camera.target);

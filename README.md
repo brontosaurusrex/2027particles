@@ -71,6 +71,8 @@ The Noise panel sets the rate and detail for three smooth time-varying channels.
 
 The Material panel sets metalness and roughness globally for all chips. Reflection lighting switches between the winter panorama and a photographic studio HDRI independently of the backdrop. Rounded chip edges catch highlights as the particles spin. Both settings are saved with the project and apply to raster exports. SVG exports use simplified vector shading and chip outlines.
 
+Enable **Screen-space reflections (SSR)** to reflect nearby visible chips in the preview on browsers with floating-point render targets. The setting is off by default and is saved with the project. Exports use HDRI reflections.
+
 Export animation also offers **ProRes 422 MOV** and **CineForm MOV** at 1920 × 1080 with a black background and Rec.709 SDR color. The browser encodes the movie locally and offers a download after rendering. The movie file name starts with the loaded or saved slot name and can be edited before export. Black PNGs use the same composition as Preview on black and carry an sRGB tag.
 
 The MOV encoder uses [FFmpeg 7.1.2](https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz) under the [LGPL](public/video/FFmpeg-LGPL-2.1.txt). Rebuild the browser module with Emscripten 4.0.20 and `scripts/build-movie-encoder.sh`.

@@ -161,6 +161,7 @@ export function decodeProject(contents) {
       ...boundedSettings({ ...MATERIAL_DEFAULTS, ...effects }, EFFECT_BOUNDS, 'camera effect'),
       lighting: choice(effects.lighting ?? 'winter', ['winter', 'studio'], 'reflection lighting'),
       beveled: boolean(effects.beveled ?? false, 'rounded chip edges'),
+      ssr: boolean(effects.ssr ?? false, 'screen-space reflections'),
       noise: assignments(effectNoise, EFFECT_NOISE_BOUNDS),
     },
     camera: {

@@ -1,6 +1,8 @@
 import * as THREE from 'three/webgpu';
-import { attribute, mix, output, renderOutput, texture, uniform, uv, vec2, vec4 } from 'three/tsl';
+import { attribute, Fn, mix, normalView, output, packNormalToRGB, renderOutput, sample,
+  texture, uniform, unpackRGBToNormal, uv, vec2, vec4 } from 'three/tsl';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { ssr } from 'three/addons/tsl/display/SSRNode.js';
 import { chipGeometries } from './chips.js';
 import { CAPACITY, FPS, STEP } from './simulation.js';
 import { EFFECT_BOUNDS, EMITTER_BOUNDS, FOCAL_LENGTH_BOUNDS, LIVE_EMITTER_KEYS, MATERIAL_DEFAULTS,
@@ -13,6 +15,7 @@ export const WIDTH = 1920;
 export const HEIGHT = 1080;
 const GOLD = [0xffa320, 0xffc642, 0xffd272, 0xf6a741, 0xffe39b].map(value => new THREE.Color(value));
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const REFLECTION_LAYER = 1;
 
 function setLifetimeAppearance(material) {
   const appearance = attribute('lifetimeAppearance', 'vec3');
@@ -69,6 +72,7 @@ class ParticleRenderer {
     this.sharpGeometries = chipGeometries();
     this.beveled = false;
     this.chips = this.sharpGeometries.map(geometry => this.createBatch(geometry, gold));
+    this.chips.forEach(mesh => mesh.layers.enable(REFLECTION_LAYER));
     this.shapeChoices = this.chips.flatMap((mesh, index) =>
       mesh.geometry.userData.symbol === 'circle' ? [index, index] : [index]);
 
@@ -90,6 +94,7 @@ class ParticleRenderer {
 
     const colorType = this.isWebGL && !renderer.backend.extensions.has('EXT_color_buffer_float')
       ? THREE.UnsignedByteType : THREE.HalfFloatType;
+    this.supportsSSR = colorType === THREE.HalfFloatType;
     const makeTarget = (depthBuffer, type = colorType) => new THREE.RenderTarget(1, 1, {
       type, depthBuffer, colorSpace: THREE.LinearSRGBColorSpace,
     });
@@ -123,6 +128,55 @@ class ParticleRenderer {
     this.referenceDarkening = uniform(0);
 
     this.skyKey = '';
+  }
+
+  createReflectionPass() {
+    const surface = new THREE.RenderTarget(1, 1, {
+      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+      depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
+    });
+    const material = new THREE.NodeMaterial({ blending: THREE.NoBlending });
+    material.fragmentNode = Fn(() => {
+      const opacity = attribute('lifetimeAppearance', 'vec3').x;
+      opacity.lessThan(0.04).discard();
+      return vec4(packNormalToRGB(normalView), opacity);
+    })();
+
+    const beauty = texture(this.samples.texture);
+    const surfaceData = texture(surface.texture);
+    const normals = sample(uv => unpackRGBToNormal(surfaceData.sample(uv).rgb));
+    const reflected = ssr(beauty, texture(surface.depthTexture), normals, {
+      camera: this.sampleCamera, metalnessNode: this.finish.metalness, roughnessNode: this.finish.roughness,
+      binaryRefine: true,
+    });
+    // Each DOF and shutter sample has its own geometry and camera projection.
+    reflected.updateBeforeType = THREE.NodeUpdateType.RENDER;
+    reflected.resolutionScale = 0.7;
+    reflected.quality.value = 0.8;
+    reflected.blurQuality = 1;
+    reflected.maxDistance.value = 0.8;
+    reflected.thickness.value = 0.025;
+    reflected.intensity.value = 0.7;
+    const strength = surfaceData.a.mul(this.finish.metalness);
+    const exposure = compositeQuad(vec4(beauty.rgb.add(reflected.rgb.mul(strength)), beauty.a).mul(this.weight));
+    exposure.material.setValues({ transparent: true, blending: THREE.CustomBlending,
+      blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor });
+    return { surface, material, exposure };
+  }
+
+  renderReflectionSurfaces(pass, camera) {
+    const { renderer, scene } = this;
+    const layers = camera.layers.mask;
+    const originalMaterial = scene.overrideMaterial;
+    camera.layers.set(REFLECTION_LAYER);
+    scene.overrideMaterial = pass.material;
+    try {
+      renderer.setRenderTarget(pass.surface);
+      renderer.render(scene, camera);
+    } finally {
+      camera.layers.mask = layers;
+      scene.overrideMaterial = originalMaterial;
+    }
   }
 
   setReferenceImage(image) {
@@ -315,6 +369,8 @@ class ParticleRenderer {
     this.setLighting(settings.lighting);
     this.setChipEdges(settings.beveled === true);
     const reference = !exporting && showReference ? this.reference : null;
+    const reflectionPass = !exporting && settings.ssr && this.supportsSSR
+      ? (this.reflectionPass ??= this.createReflectionPass()) : null;
     const count = settings.depth || settings.shutter ? sampleCount : 1;
     const focus = Math.max(camera.near * 2, settings.focus);
     const aperture = focus * settings.depth * 0.007;
@@ -323,6 +379,7 @@ class ParticleRenderer {
       renderer.setSize(width, height, false);
     }
     samples.setSize(width, height);
+    reflectionPass?.surface.setSize(width, height);
     accumulation.setSize(width, height);
     output.setSize(exporting ? width : 1, exporting ? height : 1);
     if (camera.coordinateSystem !== renderer.coordinateSystem) {
@@ -358,12 +415,15 @@ class ParticleRenderer {
       const radius = count === 1 ? 0 : Math.sqrt(((index * (count - 1)) % count + 0.5) / count);
       const sampled = this.setLensSample(camera, focus, aperture, radius, index * GOLDEN_ANGLE);
       this.updateInstances(simulation, time, sampled, settings, width, height);
+      const reflections = reflectionPass && this.finish.metalness.value > 0 && this.chips.some(mesh => mesh.count)
+        ? reflectionPass : null;
       renderer.autoClear = true;
       renderer.setRenderTarget(samples);
       renderer.render(this.scene, sampled);
+      if (reflections) this.renderReflectionSurfaces(reflections, sampled);
       renderer.autoClear = false;
       renderer.setRenderTarget(accumulation);
-      this.exposurePass.render(renderer);
+      (reflections?.exposure ?? this.exposurePass).render(renderer);
     }
 
     renderer.autoClear = true;
